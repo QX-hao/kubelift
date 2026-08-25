@@ -2,6 +2,28 @@
 
 KubeLift 是一个运行在首个控制平面节点上的 Kubernetes 集群部署 CLI。它通过 SSH 管理其他 Ubuntu 节点，使用 containerd、kubeadm 和 Cilium，并以离线安装作为首个实现目标。
 
+## 命令树
+
+```text
+kubelift
+├── add
+│   ├── master <IPv4>
+│   └── node <IPv4>
+├── bundle
+│   ├── create <source-directory>
+│   ├── inspect <bundle.tar.zst>
+│   └── manifest <source-directory>
+├── check
+├── config
+│   ├── init
+│   └── validate
+├── create
+├── status
+└── version
+```
+
+`add`、`bundle` 和 `config` 是命令分组，本身用于承载下一级子命令。命令后的参数和选项由具体子命令定义；例如，`config init` 用于生成配置模板，`bundle create` 用于生成离线包。
+
 ## 当前命令
 
 生成默认配置：

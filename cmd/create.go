@@ -54,5 +54,10 @@ func init() {
 		defaultClusterConfigPath,
 		"path to the cluster configuration file",
 	)
-	createCmd.Flags().BoolVar(&createDryRun, "dry-run", false, "print the validated plan without changing the system")
+	
+	createCmd.Flags().BoolVar(
+		&createDryRun, 
+		"dry-run", 
+		false, 
+		"print the validated plan without changing the system")
 }
