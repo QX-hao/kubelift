@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -56,6 +57,9 @@ func TestConfigInitAndValidateCommands(t *testing.T) {
 	if !strings.Contains(output, "Created cluster configuration template") {
 		t.Fatalf("config init output = %q", output)
 	}
+	if !strings.Contains(output, fmt.Sprintf("%q", path)) {
+		t.Fatalf("config init output does not include path %q: %q", path, output)
+	}
 	output, err = runCLI(t, "config", "validate", "-f", path)
 	if err != nil {
 		t.Fatalf("config validate error = %v\n%s", err, output)
@@ -66,6 +70,15 @@ func TestConfigInitAndValidateCommands(t *testing.T) {
 	output, err = runCLI(t, "config", "init", "-o", path)
 	if err == nil || !strings.Contains(output, "already exists") {
 		t.Fatalf("second config init error = %v, output = %q", err, output)
+	}
+}
+
+func TestConfigCommandsUseSystemDefaultPath(t *testing.T) {
+	if got := configInitCmd.Flag("output").DefValue; got != defaultClusterConfigPath {
+		t.Fatalf("config init default output = %q, want %q", got, defaultClusterConfigPath)
+	}
+	if got := configValidateCmd.Flag("config").DefValue; got != defaultClusterConfigPath {
+		t.Fatalf("config validate default config = %q, want %q", got, defaultClusterConfigPath)
 	}
 }
 
