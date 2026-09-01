@@ -46,6 +46,15 @@ kubelift config validate -f /etc/kubelift/cluster.yaml
 kubelift check -f /etc/kubelift/cluster.yaml
 ```
 
+检查 Master0 到远程节点的 SSH：
+
+```bash
+kubelift check ssh 192.168.121.152 -f /etc/kubelift/cluster.yaml
+kubelift check ssh 192.168.121.153 -f /etc/kubelift/cluster.yaml
+```
+
+SSH 检查使用配置中的私钥和同目录下的 `known_hosts`，只启用公钥认证，不会提示输入密码；连接成功后还会只读检查远程主机名、架构、Ubuntu 版本和 swap。首次连接前，请先用相同私钥手动连接并确认远程主机指纹。
+
 查看创建和扩容计划：
 
 ```bash
@@ -92,8 +101,16 @@ kubelift bundle manifest ./bundle-source \
   --ubuntu-version 22.04,24.04,26.04 \
   --containerd-version v1.7.0 \
   --cilium-version v1.14.0 \
-  --registry-version v2.8.0
+  --registry-version v2.8.0 \
+  --artifact-role packages/kubeadm.deb=kubeadm \
+  --artifact-role packages/kubelet.deb=kubelet \
+  --artifact-role packages/kubectl.deb=kubectl \
+  --artifact-role packages/containerd.deb=containerd \
+  --artifact-role images/kubernetes.tar=kubernetes-image \
+  --artifact-role images/cilium.tar=cilium-image
 ```
+
+`--artifact-role` 可以重复使用，格式是 `载荷相对路径=角色`。支持的角色包括 `kubeadm`、`kubelet`、`kubectl`、`containerd`、`system-package`、`cni-plugin`、`cri-tool`、`kubernetes-image`、`cilium-image`、`registry-image`、`cilium-manifest` 和 `registry-manifest`。角色目前允许为空，以兼容早期 Bundle；真正安装前应为安装所需载荷补齐角色。
 
 生成清单后创建并立即复验离线包：
 
@@ -120,4 +137,4 @@ go build -ldflags "-X github.com/QX-hao/kubelift/internal/buildinfo.Version=v0.1
 
 ## 开发状态
 
-`config init`、`config validate`、`check`、`bundle manifest`、`bundle create`、`bundle inspect`、`status` 和 `version` 已可用。`create`、`add node` 和 `add master` 已完成参数校验与 dry-run 工作流。真实的系统安装、SSH 执行、镜像导入和 `kubeadm` 操作将在 Ubuntu 测试环境中接入；在执行器启用前，不带 `--dry-run` 的变更命令会明确失败，不会修改服务器。
+`config init`、`config validate`、`check`、`check ssh`、`bundle manifest`、`bundle create`、`bundle inspect`、`status` 和 `version` 已可用。`create`、`add node` 和 `add master` 已完成参数校验与 dry-run 工作流。真实的系统安装、远程安装包、镜像导入和 `kubeadm` 操作将在 SSH 执行器基础上继续接入；在执行器启用前，不带 `--dry-run` 的变更命令会明确失败，不会修改服务器。

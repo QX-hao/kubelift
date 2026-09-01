@@ -23,14 +23,21 @@ import (
 )
 
 var bundleManifestOptions bundle.ManifestOptions
+var bundleArtifactRoles []string
 
 var bundleManifestCmd = &cobra.Command{
 	Use:   "manifest <source-directory>",
 	Short: "Generate a manifest for prepared offline payloads",
 	Long: `Scan prepared payloads under bin, images, manifests, and packages. Write
-manifest.yaml with deterministic paths, file sizes, and SHA-256 checksums.`,
+manifest.yaml with deterministic paths, file sizes, SHA-256 checksums, and
+optional artifact roles supplied with --artifact-role path=role.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		roles, err := bundle.ParseArtifactRoles(bundleArtifactRoles)
+		if err != nil {
+			return err
+		}
+		bundleManifestOptions.ArtifactRoles = roles
 		path, err := bundle.WriteManifest(args[0], bundleManifestOptions)
 		if err != nil {
 			return err
@@ -49,6 +56,7 @@ func init() {
 	bundleManifestCmd.Flags().StringVar(&bundleManifestOptions.ContainerdVersion, "containerd-version", "", "exact containerd version")
 	bundleManifestCmd.Flags().StringVar(&bundleManifestOptions.CiliumVersion, "cilium-version", "", "exact Cilium version")
 	bundleManifestCmd.Flags().StringVar(&bundleManifestOptions.RegistryVersion, "registry-version", "", "exact Registry version")
+	bundleManifestCmd.Flags().StringArrayVar(&bundleArtifactRoles, "artifact-role", nil, "assign a role with path=role; may be repeated")
 	for _, name := range []string{
 		"name",
 		"kubernetes-version",

@@ -48,6 +48,56 @@ func TestWriteManifestScansAndHashesPayloads(t *testing.T) {
 	}
 }
 
+func TestWriteManifestAppliesArtifactRoles(t *testing.T) {
+	source := t.TempDir()
+	writePayload(t, source, "packages/kubeadm.deb", "package")
+	writePayload(t, source, "images/cilium.tar", "image")
+	options := validManifestOptions()
+	options.ArtifactRoles = map[string]string{
+		"packages/kubeadm.deb": "kubeadm",
+		"images/cilium.tar":    "cilium-image",
+	}
+
+	_, err := WriteManifest(source, options)
+	if err != nil {
+		t.Fatalf("WriteManifest() error = %v", err)
+	}
+	manifestData, err := os.ReadFile(filepath.Join(source, ManifestPath))
+	if err != nil {
+		t.Fatalf("read generated manifest: %v", err)
+	}
+	manifest, err := ParseManifest(manifestData)
+	if err != nil {
+		t.Fatalf("ParseManifest() error = %v", err)
+	}
+	if files := manifest.FilesForRole("kubeadm"); len(files) != 1 || files[0].Path != "packages/kubeadm.deb" {
+		t.Fatalf("kubeadm files = %+v", files)
+	}
+	if files := manifest.FilesForRole("cilium-image"); len(files) != 1 || files[0].Path != "images/cilium.tar" {
+		t.Fatalf("cilium files = %+v", files)
+	}
+}
+
+func TestParseArtifactRolesRejectsInvalidAssignments(t *testing.T) {
+	for _, value := range []string{"missing-separator", "=kubeadm", "packages/kubeadm.deb=", "../kubeadm=kubeadm", "packages\\kubeadm.deb=kubeadm"} {
+		if _, err := ParseArtifactRoles([]string{value}); err == nil {
+			t.Errorf("ParseArtifactRoles(%q) unexpectedly passed", value)
+		}
+	}
+}
+
+func TestWriteManifestRejectsUndeclaredArtifactRole(t *testing.T) {
+	source := t.TempDir()
+	writePayload(t, source, "packages/kubeadm.deb", "package")
+	options := validManifestOptions()
+	options.ArtifactRoles = map[string]string{"packages/missing.deb": "kubeadm"}
+
+	_, err := WriteManifest(source, options)
+	if err == nil || !strings.Contains(err.Error(), "undeclared payload") {
+		t.Fatalf("WriteManifest() error = %v, want undeclared payload error", err)
+	}
+}
+
 func TestWriteManifestRefusesToOverwrite(t *testing.T) {
 	source := t.TempDir()
 	writePayload(t, source, "images/kubernetes.tar", "image")

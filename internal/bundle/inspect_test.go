@@ -36,6 +36,55 @@ func TestInspectVerifiesBundle(t *testing.T) {
 	}
 }
 
+func TestExtractVerifiesAndWritesPayloads(t *testing.T) {
+	payload := []byte("container image data")
+	manifest := validManifest("images/kubernetes.tar", payload)
+	path := writeBundle(t, manifest, []archiveEntry{{name: "images/kubernetes.tar", contents: payload, typeflag: tar.TypeReg}})
+	destination := filepath.Join(t.TempDir(), "payloads")
+
+	report, err := Extract(path, destination)
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if report.FileCount != 1 || report.TotalSize != int64(len(payload)) {
+		t.Fatalf("unexpected report: %+v", report)
+	}
+	contents, err := os.ReadFile(filepath.Join(destination, "images", "kubernetes.tar"))
+	if err != nil {
+		t.Fatalf("read extracted payload: %v", err)
+	}
+	if string(contents) != string(payload) {
+		t.Fatalf("extracted payload = %q, want %q", contents, payload)
+	}
+	info, err := os.Stat(filepath.Join(destination, "images", "kubernetes.tar"))
+	if err != nil {
+		t.Fatalf("stat extracted payload: %v", err)
+	}
+	if permission := info.Mode().Perm(); permission != 0o600 {
+		t.Fatalf("extracted payload permission = %o, want 600", permission)
+	}
+}
+
+func TestExtractRequiresAbsoluteEmptyDestination(t *testing.T) {
+	payload := []byte("image")
+	manifest := validManifest("images/kubernetes.tar", payload)
+	path := writeBundle(t, manifest, []archiveEntry{{name: "images/kubernetes.tar", contents: payload, typeflag: tar.TypeReg}})
+
+	if _, err := Extract(path, "payloads"); err == nil || !strings.Contains(err.Error(), "absolute path") {
+		t.Fatalf("Extract() relative destination error = %v", err)
+	}
+	destination := filepath.Join(t.TempDir(), "payloads")
+	if err := os.MkdirAll(destination, 0o700); err != nil {
+		t.Fatalf("create destination: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(destination, "existing"), []byte("existing"), 0o600); err != nil {
+		t.Fatalf("write existing destination file: %v", err)
+	}
+	if _, err := Extract(path, destination); err == nil || !strings.Contains(err.Error(), "must be empty") {
+		t.Fatalf("Extract() non-empty destination error = %v", err)
+	}
+}
+
 func TestInspectRejectsTamperedPayload(t *testing.T) {
 	manifest := validManifest("images/kubernetes.tar", []byte("expected"))
 	path := writeBundle(t, manifest, []archiveEntry{{name: "images/kubernetes.tar", contents: []byte("tampered"), typeflag: tar.TypeReg}})
@@ -145,6 +194,21 @@ func TestManifestRejectsExcessivePayloadBounds(t *testing.T) {
 			t.Fatalf("Validate() error = %v, want file count error", err)
 		}
 	})
+}
+
+func TestManifestRejectsInvalidArtifactRole(t *testing.T) {
+	manifest := validManifest("images/kubernetes.tar", []byte("image"))
+	manifest.Spec.Files[0].Role = "not-a-role"
+	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "role") {
+		t.Fatalf("Validate() error = %v, want role error", err)
+	}
+
+	manifest.Spec.Files[0].Role = "cilium-image"
+	manifest.Spec.Files[0].Path = "packages/kubeadm.deb"
+	manifest.Spec.Files[0].Kind = "package"
+	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "cannot be used") {
+		t.Fatalf("Validate() error = %v, want role-kind error", err)
+	}
 }
 
 func TestParseManifestRejectsUnknownField(t *testing.T) {

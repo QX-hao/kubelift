@@ -22,6 +22,7 @@ type ManifestOptions struct {
 	ContainerdVersion string
 	CiliumVersion     string
 	RegistryVersion   string
+	ArtifactRoles     map[string]string
 }
 
 func WriteManifest(sourceDirectory string, options ManifestOptions) (string, error) {
@@ -62,6 +63,9 @@ func WriteManifest(sourceDirectory string, options ManifestOptions) (string, err
 	if err != nil {
 		return "", err
 	}
+	if err := applyArtifactRoles(files, options.ArtifactRoles); err != nil {
+		return "", err
+	}
 	manifest.Spec.Files = files
 	if err := manifest.Validate(); err != nil {
 		return "", fmt.Errorf("validate generated bundle manifest: %w", err)
@@ -89,6 +93,42 @@ func WriteManifest(sourceDirectory string, options ManifestOptions) (string, err
 		return "", fmt.Errorf("close bundle manifest %q: %w", manifestPath, err)
 	}
 	return manifestPath, nil
+}
+
+// ParseArtifactRoles 将 path=role 形式的命令行参数转换为角色映射。
+func ParseArtifactRoles(values []string) (map[string]string, error) {
+	roles := make(map[string]string, len(values))
+	for _, value := range values {
+		path, role, ok := strings.Cut(value, "=")
+		path = strings.TrimSpace(path)
+		role = strings.TrimSpace(role)
+		if !ok || path == "" || role == "" || !fs.ValidPath(path) || strings.Contains(path, `\`) {
+			return nil, fmt.Errorf("artifact role must use a safe path=role value, got %q", value)
+		}
+		if _, exists := roles[path]; exists {
+			return nil, fmt.Errorf("artifact role for %q was declared more than once", path)
+		}
+		roles[path] = role
+	}
+	return roles, nil
+}
+
+func applyArtifactRoles(files []File, roles map[string]string) error {
+	if len(roles) == 0 {
+		return nil
+	}
+	declared := make(map[string]int, len(files))
+	for index, file := range files {
+		declared[file.Path] = index
+	}
+	for path, role := range roles {
+		index, exists := declared[path]
+		if !exists {
+			return fmt.Errorf("artifact role references undeclared payload %q", path)
+		}
+		files[index].Role = role
+	}
+	return nil
 }
 
 func scanPayloadFiles(sourceDirectory string) ([]File, error) {

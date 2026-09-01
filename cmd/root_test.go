@@ -48,6 +48,13 @@ func TestRootHelpExposesSupportedCommands(t *testing.T) {
 	}
 }
 
+func TestCheckSSHRejectsUnusableAddress(t *testing.T) {
+	output, err := runCLI(t, "check", "ssh", "127.0.0.1")
+	if err == nil || !strings.Contains(output, "usable IPv4 address") {
+		t.Fatalf("check ssh error = %v, output = %q", err, output)
+	}
+}
+
 func TestConfigInitAndValidateCommands(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "cluster.yaml")
 	output, err := runCLI(t, "config", "init", "-o", path)
@@ -150,6 +157,7 @@ func TestBundleManifestCreateAndInspectCommands(t *testing.T) {
 		"--containerd-version", "v1.7.0",
 		"--cilium-version", "v1.14.0",
 		"--registry-version", "v2.8.0",
+		"--artifact-role", "images/kubernetes.tar=kubernetes-image",
 	)
 	if err != nil {
 		t.Fatalf("bundle manifest error = %v\n%s", err, output)
@@ -164,7 +172,7 @@ func TestBundleManifestCreateAndInspectCommands(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bundle inspect error = %v\n%s", err, output)
 	}
-	for _, want := range []string{"Checksums: verified", "Authenticity: not verified", "Payloads:", "images/kubernetes.tar"} {
+	for _, want := range []string{"Checksums: verified", "Authenticity: not verified", "Payloads:", "images/kubernetes.tar", "kubernetes-image"} {
 		if !strings.Contains(output, want) {
 			t.Errorf("bundle inspect output does not contain %q:\n%s", want, output)
 		}

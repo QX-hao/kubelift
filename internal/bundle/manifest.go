@@ -48,6 +48,21 @@ var kindDirectory = map[string]string{
 	"package":  "packages/",
 }
 
+var artifactRoleKinds = map[string]map[string]struct{}{
+	"kubeadm":           {"binary": {}, "package": {}},
+	"kubelet":           {"binary": {}, "package": {}},
+	"kubectl":           {"binary": {}, "package": {}},
+	"containerd":        {"binary": {}, "package": {}},
+	"system-package":    {"package": {}},
+	"cni-plugin":        {"binary": {}, "package": {}},
+	"cri-tool":          {"binary": {}, "package": {}},
+	"kubernetes-image":  {"image": {}},
+	"cilium-image":      {"image": {}},
+	"registry-image":    {"image": {}},
+	"cilium-manifest":   {"manifest": {}},
+	"registry-manifest": {"manifest": {}},
+}
+
 type Manifest struct {
 	APIVersion string       `yaml:"apiVersion"`
 	Kind       string       `yaml:"kind"`
@@ -70,8 +85,20 @@ type ManifestSpec struct {
 type File struct {
 	Path   string `yaml:"path"`
 	Kind   string `yaml:"kind"`
+	Role   string `yaml:"role,omitempty"`
 	Size   int64  `yaml:"size"`
 	SHA256 string `yaml:"sha256"`
+}
+
+// FilesForRole 返回清单中属于指定角色的载荷，供安装器按角色选择文件。
+func (m Manifest) FilesForRole(role string) []File {
+	files := make([]File, 0)
+	for _, file := range m.Spec.Files {
+		if file.Role == role {
+			files = append(files, file)
+		}
+	}
+	return files
 }
 
 func ParseManifest(data []byte) (*Manifest, error) {
@@ -179,6 +206,15 @@ func validateFile(file File) error {
 	}
 	if !strings.HasPrefix(file.Path, kindDirectory[file.Kind]) {
 		return fmt.Errorf("path %q does not match kind %q", file.Path, file.Kind)
+	}
+	if file.Role != "" {
+		allowedKinds, supported := artifactRoleKinds[file.Role]
+		if !supported {
+			return fmt.Errorf("role %q is not supported", file.Role)
+		}
+		if _, allowed := allowedKinds[file.Kind]; !allowed {
+			return fmt.Errorf("role %q cannot be used with kind %q", file.Role, file.Kind)
+		}
 	}
 	if file.Size <= 0 {
 		return fmt.Errorf("size must be greater than zero")

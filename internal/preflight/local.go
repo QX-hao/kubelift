@@ -3,6 +3,7 @@ package preflight
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"os"
@@ -202,8 +203,17 @@ func readOSRelease(path string) (map[string]string, error) {
 	}
 	defer file.Close()
 
+	values, err := parseOSRelease(file)
+	if err != nil {
+		return nil, fmt.Errorf("parse os-release %q: %w", path, err)
+	}
+	return values, nil
+}
+
+// parseOSRelease 解析本地或远程读取的 os-release 内容。
+func parseOSRelease(reader io.Reader) (map[string]string, error) {
 	values := make(map[string]string)
-	scanner := bufio.NewScanner(file)
+	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -211,16 +221,16 @@ func readOSRelease(path string) (map[string]string, error) {
 		}
 		key, value, ok := strings.Cut(line, "=")
 		if !ok || strings.TrimSpace(key) == "" {
-			return nil, fmt.Errorf("parse os-release %q: invalid line %q", path, line)
+			return nil, fmt.Errorf("invalid line %q", line)
 		}
 		decoded, err := decodeOSReleaseValue(strings.TrimSpace(value))
 		if err != nil {
-			return nil, fmt.Errorf("parse os-release %q key %q: %w", path, key, err)
+			return nil, fmt.Errorf("key %q: %w", key, err)
 		}
 		values[strings.TrimSpace(key)] = decoded
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("read os-release %q: %w", path, err)
+		return nil, err
 	}
 	return values, nil
 }

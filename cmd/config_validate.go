@@ -30,6 +30,7 @@ var configValidateCmd = &cobra.Command{
 	Long:  "Validate only the cluster configuration schema and values without checking the current host or offline bundle files.",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// 配置加载和校验
 		configuration, err := config.Load(configValidatePath)
 		if err != nil {
 			return err

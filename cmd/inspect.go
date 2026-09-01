@@ -63,11 +63,16 @@ var inspectCmd = &cobra.Command{
 			return err
 		}
 		for _, file := range files {
+			role := file.Role
+			if role == "" {
+				role = "-"
+			}
 			if _, err := fmt.Fprintf(
 				cmd.OutOrStdout(),
-				"  %s\t%s\t%d\t%s\n",
+				"  %s\t%s\t%s\t%d\t%s\n",
 				file.Path,
 				file.Kind,
+				role,
 				file.Size,
 				file.SHA256,
 			); err != nil {
