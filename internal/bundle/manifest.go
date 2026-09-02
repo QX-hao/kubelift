@@ -34,28 +34,37 @@ var supportedUbuntuVersions = map[string]struct{}{
 	"26.04": {},
 }
 
+// 每种载荷类型都对应 Bundle 中固定的目录，避免将运行时归档误当成可执行文件安装。
 var supportedFileKinds = map[string]struct{}{
 	"binary":   {},
+	"config":   {},
 	"image":    {},
 	"manifest": {},
-	"package":  {},
+	"runtime":  {},
+	"script":   {},
 }
 
 var kindDirectory = map[string]string{
 	"binary":   "bin/",
+	"config":   "etc/",
 	"image":    "images/",
 	"manifest": "manifests/",
-	"package":  "packages/",
+	"runtime":  "cri/",
+	"script":   "scripts/",
 }
 
 var artifactRoleKinds = map[string]map[string]struct{}{
-	"kubeadm":           {"binary": {}, "package": {}},
-	"kubelet":           {"binary": {}, "package": {}},
-	"kubectl":           {"binary": {}, "package": {}},
-	"containerd":        {"binary": {}, "package": {}},
-	"system-package":    {"package": {}},
-	"cni-plugin":        {"binary": {}, "package": {}},
-	"cri-tool":          {"binary": {}, "package": {}},
+	"kubeadm":           {"binary": {}},
+	"kubelet":           {"binary": {}},
+	"kubectl":           {"binary": {}},
+	"containerd":        {"runtime": {}},
+	"runc":              {"binary": {}},
+	"systemd-unit":      {"config": {}},
+	"containerd-config": {"config": {}},
+	"kubelet-config":    {"config": {}},
+	"init-script":       {"script": {}},
+	"cni-plugin":        {"binary": {}},
+	"cri-tool":          {"binary": {}},
 	"kubernetes-image":  {"image": {}},
 	"cilium-image":      {"image": {}},
 	"registry-image":    {"image": {}},

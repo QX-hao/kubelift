@@ -204,8 +204,8 @@ func TestManifestRejectsInvalidArtifactRole(t *testing.T) {
 	}
 
 	manifest.Spec.Files[0].Role = "cilium-image"
-	manifest.Spec.Files[0].Path = "packages/kubeadm.deb"
-	manifest.Spec.Files[0].Kind = "package"
+	manifest.Spec.Files[0].Path = "cri/containerd.tar.gz"
+	manifest.Spec.Files[0].Kind = "runtime"
 	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "cannot be used") {
 		t.Fatalf("Validate() error = %v, want role-kind error", err)
 	}

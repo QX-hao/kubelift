@@ -62,10 +62,13 @@ func TestBundlePushRejectsUnusableAddress(t *testing.T) {
 	}
 }
 
-func TestBundleInstallRejectsUnusableAddress(t *testing.T) {
-	output, err := runCLI(t, "bundle", "install", "127.0.0.1")
-	if err == nil || !strings.Contains(output, "usable IPv4 address") {
-		t.Fatalf("bundle install error = %v, output = %q", err, output)
+func TestBundleHelpDoesNotExposePackageInstaller(t *testing.T) {
+	output, err := runCLI(t, "bundle", "--help")
+	if err != nil {
+		t.Fatalf("bundle help error = %v\n%s", err, output)
+	}
+	if strings.Contains(output, "install <IPv4>") {
+		t.Fatalf("bundle help exposes removed package installer:\n%s", output)
 	}
 }
 

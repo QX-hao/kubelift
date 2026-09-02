@@ -38,7 +38,7 @@ var bundlePushCmd = &cobra.Command{
 	Short: "Upload the configured offline bundle to a remote node",
 	Long: `Validate the local host and remote node, then upload every payload from
 the configured offline bundle. This command only stages files under
-/var/lib/kubelift and does not install packages or modify Kubernetes.`,
+/var/lib/kubelift and does not install components or modify Kubernetes.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if bundlePushTimeout <= 0 {

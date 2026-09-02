@@ -12,7 +12,6 @@ kubelift
 ├── bundle
 │   ├── create <source-directory>
 │   ├── inspect <bundle.tar.zst>
-│   ├── install <IPv4>
 │   ├── manifest <source-directory>
 │   └── push <IPv4>
 ├── check
@@ -88,9 +87,11 @@ kubelift --version
 bundle-source/
 ├── manifest.yaml
 ├── bin/          # 可执行文件
+├── cri/          # containerd 等运行时压缩包
+├── etc/          # containerd、kubelet 和 systemd 配置
 ├── images/       # 可由 containerd 导入的镜像归档
 ├── manifests/    # 安装所需的 Kubernetes 清单
-└── packages/     # Ubuntu 离线软件包
+└── scripts/      # 节点初始化脚本
 ```
 
 准备好载荷后，由 CLI 扫描目录并生成 `manifest.yaml`。命令不会覆盖已有清单：
@@ -104,15 +105,20 @@ kubelift bundle manifest ./bundle-source \
   --containerd-version v1.7.0 \
   --cilium-version v1.14.0 \
   --registry-version v2.8.0 \
-  --artifact-role packages/kubeadm.deb=kubeadm \
-  --artifact-role packages/kubelet.deb=kubelet \
-  --artifact-role packages/kubectl.deb=kubectl \
-  --artifact-role packages/containerd.deb=containerd \
+  --artifact-role bin/kubeadm=kubeadm \
+  --artifact-role bin/kubelet=kubelet \
+  --artifact-role bin/kubectl=kubectl \
+  --artifact-role cri/containerd.tar.gz=containerd \
+  --artifact-role bin/runc=runc \
+  --artifact-role etc/systemd/containerd.service=systemd-unit \
+  --artifact-role etc/systemd/kubelet.service=systemd-unit \
+  --artifact-role etc/containerd/config.toml=containerd-config \
+  --artifact-role scripts/init.sh=init-script \
   --artifact-role images/kubernetes.tar=kubernetes-image \
   --artifact-role images/cilium.tar=cilium-image
 ```
 
-`--artifact-role` 可以重复使用，格式是 `载荷相对路径=角色`。支持的角色包括 `kubeadm`、`kubelet`、`kubectl`、`containerd`、`system-package`、`cni-plugin`、`cri-tool`、`kubernetes-image`、`cilium-image`、`registry-image`、`cilium-manifest` 和 `registry-manifest`。角色目前允许为空，以兼容早期 Bundle；真正安装前应为安装所需载荷补齐角色。
+`--artifact-role` 可以重复使用，格式是 `载荷相对路径=角色`。支持的角色包括 `kubeadm`、`kubelet`、`kubectl`、`containerd`、`runc`、`systemd-unit`、`containerd-config`、`kubelet-config`、`init-script`、`cni-plugin`、`cri-tool`、`kubernetes-image`、`cilium-image`、`registry-image`、`cilium-manifest` 和 `registry-manifest`。角色目前允许为空，以兼容早期 Bundle；真正安装前应为安装所需载荷补齐角色。
 
 生成清单后创建并立即复验离线包：
 
@@ -134,15 +140,7 @@ kubelift bundle push 192.168.121.152
 kubelift bundle push 192.168.121.153
 ```
 
-`bundle push` 会先检查本机和远程节点，再通过 SSH 上传所有载荷，并在远程节点执行 SHA-256 复核。它只写入 `/var/lib/kubelift/staging/<cluster-name>`，不会安装软件、配置 containerd 或执行 `kubeadm`。
-
-上传并在远程节点离线安装 Bundle 中的 Debian 软件包：
-
-```bash
-kubelift bundle install 192.168.121.152
-```
-
-该命令目前只安装 `packages/` 中的 `.deb` 文件，不配置 containerd、不导入镜像，也不执行 `kubeadm`。
+`bundle push` 会先检查本机和远程节点，再通过 SSH 上传所有载荷，并在远程节点执行 SHA-256 复核。它只写入 `/var/lib/kubelift/staging/<cluster-name>`，不会安装二进制、配置 containerd、导入镜像或执行 `kubeadm`。
 
 `kubelift check` 也会完整读取离线包，并确认 SHA-256、Kubernetes 版本、CPU 架构和 Ubuntu 兼容范围。SHA-256 能发现内容损坏或与清单不一致，但如果攻击者同时替换离线包和清单，它不能证明文件来自可信发布者；发布阶段还需要增加清单签名。
 

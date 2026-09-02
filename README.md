@@ -2,7 +2,7 @@
 
 KubeLift is a Go-based CLI for bootstrapping Kubernetes clusters on existing Ubuntu servers. It is designed to run on the first control-plane node, use SSH to manage additional nodes, install from an offline bundle, use containerd as the container runtime, and install Cilium as the CNI.
 
-The project is currently in the infrastructure and validation stage. Configuration validation, SSH preflight, offline bundle validation, bundle staging, and offline Debian package installation are available. The complete Kubernetes installation workflow is still being implemented.
+The project is currently in the infrastructure and validation stage. Configuration validation, SSH preflight, offline bundle validation, and bundle staging are available. The complete node preparation and Kubernetes installation workflow is still being implemented.
 
 ## Current Scope
 
@@ -93,7 +93,7 @@ The remote check is read-only. It verifies the SSH connection, hostname, archite
 
 ## Offline Bundles
 
-KubeLift bundles are assembled artifacts, not a Kubernetes-provided universal archive. A bundle contains the exact packages, images, manifests, and binaries required by a selected installation profile.
+KubeLift bundles are assembled artifacts, not a Kubernetes-provided universal archive. A bundle contains the exact binaries, runtime archives, images, manifests, configuration files, and initialization scripts required by a selected installation profile.
 
 The source directory may contain these payload directories:
 
@@ -101,9 +101,11 @@ The source directory may contain these payload directories:
 bundle-source/
 ├── manifest.yaml
 ├── bin/
+├── cri/
+├── etc/
 ├── images/
 ├── manifests/
-└── packages/
+└── scripts/
 ```
 
 Generate a manifest after placing payloads in the source directory:
@@ -117,10 +119,15 @@ kubelift bundle manifest ./bundle-source \
   --containerd-version v1.7.0 \
   --cilium-version v1.14.0 \
   --registry-version v2.8.0 \
-  --artifact-role packages/kubeadm.deb=kubeadm \
-  --artifact-role packages/kubelet.deb=kubelet \
-  --artifact-role packages/kubectl.deb=kubectl \
-  --artifact-role packages/containerd.deb=containerd \
+  --artifact-role bin/kubeadm=kubeadm \
+  --artifact-role bin/kubelet=kubelet \
+  --artifact-role bin/kubectl=kubectl \
+  --artifact-role cri/containerd.tar.gz=containerd \
+  --artifact-role bin/runc=runc \
+  --artifact-role etc/systemd/containerd.service=systemd-unit \
+  --artifact-role etc/systemd/kubelet.service=systemd-unit \
+  --artifact-role etc/containerd/config.toml=containerd-config \
+  --artifact-role scripts/init.sh=init-script \
   --artifact-role images/kubernetes.tar=kubernetes-image \
   --artifact-role images/cilium.tar=cilium-image
 ```
@@ -138,9 +145,9 @@ Inspect a bundle independently:
 kubelift bundle inspect ./kubernetes-v1.28.15-amd64.tar.zst --files
 ```
 
-The bundle manifest records the Kubernetes version, supported Ubuntu versions, architecture, component versions, payload sizes, roles, and SHA-256 checksums. The archive uses `tar.zst` only as a transport format; it is not an official Kubernetes package format.
+The bundle manifest records the Kubernetes version, supported Ubuntu versions, architecture, component versions, payload sizes, roles, and SHA-256 checksums. The archive uses `tar.zst` only as a transport format; it is not an official Kubernetes archive format.
 
-## Staging and Package Installation
+## Staging
 
 Upload every bundle payload to a remote node:
 
@@ -154,13 +161,7 @@ Payloads are staged under:
 /var/lib/kubelift/staging/<cluster-name>/
 ```
 
-Upload and install the Debian package payloads without contacting an online package repository:
-
-```bash
-kubelift bundle install 192.168.121.152
-```
-
-The command currently installs only files under `packages/`. It does not configure containerd, import images, run `kubeadm`, or install Cilium.
+`bundle push` only transfers and verifies the payloads. It does not install binaries, configure containerd, import images, run `kubeadm`, or install Cilium yet.
 
 ## Cluster Commands
 
@@ -188,7 +189,6 @@ kubelift
 ├── bundle
 │   ├── create <source-directory>
 │   ├── inspect <bundle.tar.zst>
-│   ├── install <IPv4>
 │   ├── manifest <source-directory>
 │   └── push <IPv4>
 ├── check
@@ -201,4 +201,4 @@ kubelift
 └── version
 ```
 
-The next implementation stage is to add the containerd preparation and image import workflow, then connect the staged artifacts to `kubeadm init` and `kubeadm join`.
+The next implementation stage is to add binary and runtime preparation, systemd setup, image import, and then connect the staged artifacts to `kubeadm init` and `kubeadm join`.

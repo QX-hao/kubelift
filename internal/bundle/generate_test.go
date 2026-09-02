@@ -13,6 +13,9 @@ func TestWriteManifestScansAndHashesPayloads(t *testing.T) {
 	source := t.TempDir()
 	writePayload(t, source, "images/kubernetes.tar", "image")
 	writePayload(t, source, "bin/kubectl", "binary")
+	writePayload(t, source, "cri/containerd.tar.gz", "runtime")
+	writePayload(t, source, "etc/containerd/config.toml", "config")
+	writePayload(t, source, "scripts/init.sh", "script")
 
 	path, err := WriteManifest(source, validManifestOptions())
 	if err != nil {
@@ -29,11 +32,23 @@ func TestWriteManifestScansAndHashesPayloads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseManifest() error = %v", err)
 	}
-	if len(manifest.Spec.Files) != 2 {
-		t.Fatalf("file count = %d, want 2", len(manifest.Spec.Files))
+	if len(manifest.Spec.Files) != 5 {
+		t.Fatalf("file count = %d, want 5", len(manifest.Spec.Files))
 	}
 	if manifest.Spec.Files[0].Path != "bin/kubectl" || manifest.Spec.Files[0].Kind != "binary" {
 		t.Fatalf("first file = %+v", manifest.Spec.Files[0])
+	}
+	wantKinds := map[string]string{
+		"bin/kubectl":                "binary",
+		"cri/containerd.tar.gz":      "runtime",
+		"etc/containerd/config.toml": "config",
+		"images/kubernetes.tar":      "image",
+		"scripts/init.sh":            "script",
+	}
+	for _, file := range manifest.Spec.Files {
+		if want := wantKinds[file.Path]; file.Kind != want {
+			t.Fatalf("kind for %q = %q, want %q", file.Path, file.Kind, want)
+		}
 	}
 	payloadHash := sha256.Sum256([]byte("binary"))
 	if manifest.Spec.Files[0].SHA256 != fmt.Sprintf("%x", payloadHash) {
@@ -50,12 +65,12 @@ func TestWriteManifestScansAndHashesPayloads(t *testing.T) {
 
 func TestWriteManifestAppliesArtifactRoles(t *testing.T) {
 	source := t.TempDir()
-	writePayload(t, source, "packages/kubeadm.deb", "package")
+	writePayload(t, source, "bin/kubeadm", "binary")
 	writePayload(t, source, "images/cilium.tar", "image")
 	options := validManifestOptions()
 	options.ArtifactRoles = map[string]string{
-		"packages/kubeadm.deb": "kubeadm",
-		"images/cilium.tar":    "cilium-image",
+		"bin/kubeadm":       "kubeadm",
+		"images/cilium.tar": "cilium-image",
 	}
 
 	_, err := WriteManifest(source, options)
@@ -70,7 +85,7 @@ func TestWriteManifestAppliesArtifactRoles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseManifest() error = %v", err)
 	}
-	if files := manifest.FilesForRole("kubeadm"); len(files) != 1 || files[0].Path != "packages/kubeadm.deb" {
+	if files := manifest.FilesForRole("kubeadm"); len(files) != 1 || files[0].Path != "bin/kubeadm" {
 		t.Fatalf("kubeadm files = %+v", files)
 	}
 	if files := manifest.FilesForRole("cilium-image"); len(files) != 1 || files[0].Path != "images/cilium.tar" {
@@ -79,7 +94,7 @@ func TestWriteManifestAppliesArtifactRoles(t *testing.T) {
 }
 
 func TestParseArtifactRolesRejectsInvalidAssignments(t *testing.T) {
-	for _, value := range []string{"missing-separator", "=kubeadm", "packages/kubeadm.deb=", "../kubeadm=kubeadm", "packages\\kubeadm.deb=kubeadm"} {
+	for _, value := range []string{"missing-separator", "=kubeadm", "bin/kubeadm=", "../kubeadm=kubeadm", "bin\\kubeadm=kubeadm"} {
 		if _, err := ParseArtifactRoles([]string{value}); err == nil {
 			t.Errorf("ParseArtifactRoles(%q) unexpectedly passed", value)
 		}
@@ -88,9 +103,9 @@ func TestParseArtifactRolesRejectsInvalidAssignments(t *testing.T) {
 
 func TestWriteManifestRejectsUndeclaredArtifactRole(t *testing.T) {
 	source := t.TempDir()
-	writePayload(t, source, "packages/kubeadm.deb", "package")
+	writePayload(t, source, "bin/kubeadm", "binary")
 	options := validManifestOptions()
-	options.ArtifactRoles = map[string]string{"packages/missing.deb": "kubeadm"}
+	options.ArtifactRoles = map[string]string{"bin/missing": "kubeadm"}
 
 	_, err := WriteManifest(source, options)
 	if err == nil || !strings.Contains(err.Error(), "undeclared payload") {
@@ -129,6 +144,13 @@ func TestWriteManifestRejectsUnsupportedAndUnsafePayloads(t *testing.T) {
 			name: "unsupported directory",
 			prepare: func(t *testing.T, source string) {
 				writePayload(t, source, "other/file", "payload")
+			},
+			want: "not a supported payload directory",
+		},
+		{
+			name: "unsupported legacy directory",
+			prepare: func(t *testing.T, source string) {
+				writePayload(t, source, "legacy/file", "payload")
 			},
 			want: "not a supported payload directory",
 		},

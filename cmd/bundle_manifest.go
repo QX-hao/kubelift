@@ -28,7 +28,7 @@ var bundleArtifactRoles []string
 var bundleManifestCmd = &cobra.Command{
 	Use:   "manifest <source-directory>",
 	Short: "Generate a manifest for prepared offline payloads",
-	Long: `Scan prepared payloads under bin, images, manifests, and packages. Write
+	Long: `Scan prepared payloads under bin, cri, etc, images, manifests, and scripts. Write
 manifest.yaml with deterministic paths, file sizes, SHA-256 checksums, and
 optional artifact roles supplied with --artifact-role path=role.`,
 	Args: cobra.ExactArgs(1),

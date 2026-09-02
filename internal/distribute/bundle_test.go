@@ -38,12 +38,14 @@ func (t *fakeTransport) VerifySHA256(_ context.Context, path, expected string) e
 
 func TestPushUploadsAndVerifiesAllBundlePayloads(t *testing.T) {
 	bundlePath := writeTestBundle(t, map[string]string{
-		"packages/kubeadm.deb": "kubeadm package",
-		"images/cilium.tar":    "cilium image",
+		"bin/kubeadm":           "kubeadm binary",
+		"cri/containerd.tar.gz": "containerd runtime",
+		"images/cilium.tar":     "cilium image",
 	})
 	transport := &fakeTransport{checksums: map[string]string{
-		"/var/lib/kubelift/staging/production/images/cilium.tar":    checksum("cilium image"),
-		"/var/lib/kubelift/staging/production/packages/kubeadm.deb": checksum("kubeadm package"),
+		"/var/lib/kubelift/staging/production/bin/kubeadm":           checksum("kubeadm binary"),
+		"/var/lib/kubelift/staging/production/cri/containerd.tar.gz": checksum("containerd runtime"),
+		"/var/lib/kubelift/staging/production/images/cilium.tar":     checksum("cilium image"),
 	}}
 
 	report, err := Push(context.Background(), transport, bundlePath, "/var/lib/kubelift/staging/production")
@@ -55,16 +57,18 @@ func TestPushUploadsAndVerifiesAllBundlePayloads(t *testing.T) {
 	}
 	sort.Strings(transport.uploads)
 	wantUploads := []string{
+		"/var/lib/kubelift/staging/production/bin/kubeadm:kubeadm binary",
+		"/var/lib/kubelift/staging/production/cri/containerd.tar.gz:containerd runtime",
 		"/var/lib/kubelift/staging/production/images/cilium.tar:cilium image",
-		"/var/lib/kubelift/staging/production/packages/kubeadm.deb:kubeadm package",
 	}
 	if fmt.Sprint(transport.uploads) != fmt.Sprint(wantUploads) {
 		t.Fatalf("uploads = %v, want %v", transport.uploads, wantUploads)
 	}
 	sort.Strings(transport.verified)
 	wantVerified := []string{
+		"/var/lib/kubelift/staging/production/bin/kubeadm",
+		"/var/lib/kubelift/staging/production/cri/containerd.tar.gz",
 		"/var/lib/kubelift/staging/production/images/cilium.tar",
-		"/var/lib/kubelift/staging/production/packages/kubeadm.deb",
 	}
 	if fmt.Sprint(transport.verified) != fmt.Sprint(wantVerified) {
 		t.Fatalf("verified = %v, want %v", transport.verified, wantVerified)
@@ -99,7 +103,7 @@ func writeTestBundle(t *testing.T, payloads map[string]string) string {
 		hash := sha256.Sum256([]byte(contents))
 		files = append(files, bundle.File{
 			Path:   relativePath,
-			Kind:   map[string]string{"packages": "package", "images": "image"}[filepath.ToSlash(filepath.Dir(relativePath))],
+			Kind:   map[string]string{"bin": "binary", "cri": "runtime", "images": "image"}[filepath.ToSlash(filepath.Dir(relativePath))],
 			Size:   int64(len(contents)),
 			SHA256: fmt.Sprintf("%x", hash),
 		})
