@@ -55,6 +55,20 @@ func TestCheckSSHRejectsUnusableAddress(t *testing.T) {
 	}
 }
 
+func TestBundlePushRejectsUnusableAddress(t *testing.T) {
+	output, err := runCLI(t, "bundle", "push", "127.0.0.1")
+	if err == nil || !strings.Contains(output, "usable IPv4 address") {
+		t.Fatalf("bundle push error = %v, output = %q", err, output)
+	}
+}
+
+func TestBundleInstallRejectsUnusableAddress(t *testing.T) {
+	output, err := runCLI(t, "bundle", "install", "127.0.0.1")
+	if err == nil || !strings.Contains(output, "usable IPv4 address") {
+		t.Fatalf("bundle install error = %v, output = %q", err, output)
+	}
+}
+
 func TestConfigInitAndValidateCommands(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "cluster.yaml")
 	output, err := runCLI(t, "config", "init", "-o", path)

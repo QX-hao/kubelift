@@ -18,6 +18,7 @@ package remote
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"os"
@@ -215,6 +216,33 @@ func (c *Client) UploadFile(ctx context.Context, sourcePath, destinationPath str
 		}
 		return fmt.Errorf("upload file %q: %w", sourcePath, err)
 	}
+}
+
+// VerifySHA256 在远程节点校验文件摘要，避免传输损坏的载荷继续进入安装阶段。
+func (c *Client) VerifySHA256(ctx context.Context, path, expected string) error {
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("remote verification path must be absolute")
+	}
+	decoded, err := hex.DecodeString(expected)
+	if err != nil || len(decoded) != 32 {
+		return fmt.Errorf("expected SHA-256 must contain 64 hexadecimal characters")
+	}
+	result, err := c.Run(ctx, "sha256sum --binary -- "+shellQuote(path))
+	if err != nil {
+		if stderr := strings.TrimSpace(result.Stderr); stderr != "" {
+			return fmt.Errorf("verify remote file %q: %w; remote stderr: %s", path, err, stderr)
+		}
+		return fmt.Errorf("verify remote file %q: %w", path, err)
+	}
+	fields := strings.Fields(result.Stdout)
+	if len(fields) == 0 || !strings.EqualFold(fields[0], expected) {
+		actual := ""
+		if len(fields) > 0 {
+			actual = fields[0]
+		}
+		return fmt.Errorf("remote file %q SHA-256 is %q, want %q", path, actual, expected)
+	}
+	return nil
 }
 
 // Close 关闭 SSH 连接。
