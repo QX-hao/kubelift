@@ -17,48 +17,40 @@ package cmd
 
 import (
 	"github.com/QX-hao/kubelift/internal/config"
-	"github.com/QX-hao/kubelift/internal/workflow"
+	"github.com/QX-hao/kubelift/internal/kubeadm"
 	"github.com/spf13/cobra"
 )
 
-var (
-	createConfigPath string
-	createDryRun     bool
-)
+var kubeadmConfigPath = defaultClusterConfigPath
 
-var createCmd = &cobra.Command{
-	Use:   "create",
-	Short: "Create a Kubernetes cluster on the current Master0 host",
-	Long: `Create a single-Master Kubernetes cluster from the configured offline
-bundle. Additional masters and workers are joined later with kubelift add.`,
+var kubeadmConfigCmd = &cobra.Command{
+	Use:   "kubeadm",
+	Short: "Render the kubeadm init configuration",
+	Long: `Render the kubeadm InitConfiguration, ClusterConfiguration, and
+KubeletConfiguration derived from the KubeLift cluster configuration. The
+result is written to standard output and does not modify the host.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		configuration, err := config.Load(createConfigPath)
+		configuration, err := config.Load(kubeadmConfigPath)
 		if err != nil {
 			return err
 		}
-		plan := workflow.CreatePlan(*configuration)
-		if !createDryRun {
-			return executionUnavailable(plan.Action)
+		contents, err := kubeadm.GenerateInitConfig(*configuration)
+		if err != nil {
+			return err
 		}
-		return printPlan(cmd, plan)
+		_, err = cmd.OutOrStdout().Write(contents)
+		return err
 	},
 }
 
 func init() {
-	rootCmd.AddCommand(createCmd)
-	createCmd.Flags().StringVarP(
-		&createConfigPath,
+	configCmd.AddCommand(kubeadmConfigCmd)
+	kubeadmConfigCmd.Flags().StringVarP(
+		&kubeadmConfigPath,
 		"config",
 		"f",
 		defaultClusterConfigPath,
 		"path to the cluster configuration file",
-	)
-
-	createCmd.Flags().BoolVar(
-		&createDryRun,
-		"dry-run",
-		false,
-		"print the validated plan without changing the system",
 	)
 }

@@ -12,11 +12,14 @@ kubelift
 ├── bundle
 │   ├── create <source-directory>
 │   ├── inspect <bundle.tar.zst>
+│   ├── import-images <IPv4>
 │   ├── manifest <source-directory>
+│   ├── prepare <IPv4>
 │   └── push <IPv4>
 ├── check
 ├── config
 │   ├── init
+│   ├── kubeadm
 │   └── validate
 ├── create
 ├── status
@@ -40,6 +43,14 @@ sudo kubelift config init
 ```bash
 kubelift config validate -f /etc/kubelift/cluster.yaml
 ```
+
+只生成 Kubernetes v1.28 的 kubeadm 初始化配置，不修改服务器：
+
+```bash
+kubelift config kubeadm
+```
+
+生成的多文档 YAML 会指定 containerd、禁止联网拉取镜像、跳过 kube-proxy 阶段，并让 kubelet 使用 systemd cgroup。其他 Kubernetes 次版本会明确拒绝，直到实现对应的 kubeadm 配置 API。
 
 检查配置和当前 Master0：
 
@@ -142,9 +153,25 @@ kubelift bundle push 192.168.121.153
 
 `bundle push` 会先检查本机和远程节点，再通过 SSH 上传所有载荷，并在远程节点执行 SHA-256 复核。它只写入 `/var/lib/kubelift/staging/<cluster-name>`，不会安装二进制、配置 containerd、导入镜像或执行 `kubeadm`。
 
+使用 Sealos 风格的 Bundle 载荷准备远程节点：
+
+```bash
+kubelift bundle prepare 192.168.121.152
+```
+
+该命令会上传并校验 Bundle，然后将 `kubeadm`、`kubelet`、`kubectl` 等裸二进制复制到 `/usr/bin`，加载所需内核模块并设置 Kubernetes 网络 sysctl，解压 containerd runtime，安装 containerd 和 kubelet 的 systemd 配置，并启用/重启 containerd。它暂不执行 `kubeadm`、导入镜像或安装 Cilium。
+
+将 Kubernetes、Cilium 和可选 Registry 镜像归档导入远程节点的 containerd：
+
+```bash
+kubelift bundle import-images 192.168.121.152
+```
+
+该命令使用 `ctr -n k8s.io images import --all-platforms`，不会从镜像仓库拉取内容。目标节点必须先完成 `bundle prepare` 并且 containerd 正在运行。
+
 `kubelift check` 也会完整读取离线包，并确认 SHA-256、Kubernetes 版本、CPU 架构和 Ubuntu 兼容范围。SHA-256 能发现内容损坏或与清单不一致，但如果攻击者同时替换离线包和清单，它不能证明文件来自可信发布者；发布阶段还需要增加清单签名。
 
-当前清单只定义包结构和校验信息，还不能单独证明包内已经包含一次完整安装所需的所有文件。等 Ubuntu 实机验证确定 kubelet、kubeadm、containerd、Cilium、Registry 和系统镜像的最终载荷布局后，清单会增加必需的 artifact role 校验。
+当前清单定义载荷结构和校验信息。`bundle prepare` 会校验并使用必需的裸二进制、containerd runtime、配置和 systemd 载荷，但还不会导入镜像或初始化 Kubernetes 集群。等 Ubuntu 实机验证确定 Cilium、Registry 和系统镜像的最终载荷布局后，清单会增加更严格的必需角色校验。
 
 发布构建可通过链接参数写入版本信息：
 
@@ -154,4 +181,4 @@ go build -ldflags "-X github.com/QX-hao/kubelift/internal/buildinfo.Version=v0.1
 
 ## 开发状态
 
-`config init`、`config validate`、`check`、`check ssh`、`bundle manifest`、`bundle create`、`bundle inspect`、`status` 和 `version` 已可用。`create`、`add node` 和 `add master` 已完成参数校验与 dry-run 工作流。真实的系统安装、远程安装包、镜像导入和 `kubeadm` 操作将在 SSH 执行器基础上继续接入；在执行器启用前，不带 `--dry-run` 的变更命令会明确失败，不会修改服务器。
+`config init`、`config validate`、`config kubeadm`、`check`、`check ssh`、`bundle manifest`、`bundle create`、`bundle inspect`、`bundle push`、`bundle prepare`、`bundle import-images`、`status` 和 `version` 已可用。内部 Master0 执行器已经可以完成本地 staging、节点准备、镜像导入和 `kubeadm init` 调用；公开的 `create` 会等 Cilium 安装与集群健康检查接入后再启用。在此之前，不带 `--dry-run` 的 `create` 和 `add` 命令仍会明确失败，不会修改服务器。

@@ -62,6 +62,33 @@ func TestBundlePushRejectsUnusableAddress(t *testing.T) {
 	}
 }
 
+func TestBundlePrepareRejectsUnusableAddress(t *testing.T) {
+	output, err := runCLI(t, "bundle", "prepare", "127.0.0.1")
+	if err == nil || !strings.Contains(output, "usable IPv4 address") {
+		t.Fatalf("bundle prepare error = %v, output = %q", err, output)
+	}
+}
+
+func TestBundleImportImagesRejectsUnusableAddress(t *testing.T) {
+	output, err := runCLI(t, "bundle", "import-images", "127.0.0.1")
+	if err == nil || !strings.Contains(output, "usable IPv4 address") {
+		t.Fatalf("bundle import-images error = %v, output = %q", err, output)
+	}
+}
+
+func TestBundleHelpExposesNodePreparation(t *testing.T) {
+	output, err := runCLI(t, "bundle", "--help")
+	if err != nil {
+		t.Fatalf("bundle help error = %v\n%s", err, output)
+	}
+	if !strings.Contains(output, "prepare") {
+		t.Fatalf("bundle help does not contain prepare:\n%s", output)
+	}
+	if !strings.Contains(output, "import-images") {
+		t.Fatalf("bundle help does not contain import-images:\n%s", output)
+	}
+}
+
 func TestBundleHelpDoesNotExposePackageInstaller(t *testing.T) {
 	output, err := runCLI(t, "bundle", "--help")
 	if err != nil {
@@ -103,6 +130,26 @@ func TestConfigCommandsUseSystemDefaultPath(t *testing.T) {
 	}
 	if got := configValidateCmd.Flag("config").DefValue; got != defaultClusterConfigPath {
 		t.Fatalf("config validate default config = %q, want %q", got, defaultClusterConfigPath)
+	}
+}
+
+func TestConfigKubeadmRendersOfflineInitConfiguration(t *testing.T) {
+	path := writeCLIConfiguration(t, true)
+	output, err := runCLI(t, "config", "kubeadm", "-f", path)
+	if err != nil {
+		t.Fatalf("config kubeadm error = %v\n%s", err, output)
+	}
+	for _, expected := range []string{
+		"kind: InitConfiguration",
+		"kind: ClusterConfiguration",
+		"kind: KubeletConfiguration",
+		"imagePullPolicy: Never",
+		"controlPlaneEndpoint: 10.0.0.100:6443",
+		"- addon/kube-proxy",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("config kubeadm output does not contain %q:\n%s", expected, output)
+		}
 	}
 }
 

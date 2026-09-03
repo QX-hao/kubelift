@@ -74,6 +74,18 @@ kubelift config validate
 
 The default path is `/etc/kubelift/cluster.yaml`; use `-f` to select another file.
 
+Render the Kubernetes v1.28 kubeadm init configuration without changing the
+host:
+
+```bash
+kubelift config kubeadm
+```
+
+The generated multi-document YAML uses containerd, prevents image pulls,
+skips the kube-proxy phase for Cilium replacement, and configures the kubelet
+to use the systemd cgroup driver. Other Kubernetes minor versions are rejected
+until their kubeadm configuration API is implemented.
+
 ## Checks
 
 Check the local Master0 host, private key, and offline bundle:
@@ -163,6 +175,29 @@ Payloads are staged under:
 
 `bundle push` only transfers and verifies the payloads. It does not install binaries, configure containerd, import images, run `kubeadm`, or install Cilium yet.
 
+Prepare a remote node from the staged Bundle using the Sealos-style binary and
+runtime layout:
+
+```bash
+kubelift bundle prepare 192.168.121.152
+```
+
+This installs the required `kubeadm`, `kubelet`, and `kubectl` binaries,
+extracts the containerd runtime archive, installs the containerd and kubelet
+systemd units, loads the required kernel modules, applies Kubernetes networking
+sysctls, and enables/restarts containerd. It does not run `kubeadm`, import
+images, or install Cilium yet.
+
+Import the Kubernetes, Cilium, and optional Registry image archives into
+containerd on a remote node:
+
+```bash
+kubelift bundle import-images 192.168.121.152
+```
+
+The command uses `ctr -n k8s.io images import --all-platforms` and never pulls
+from a registry. Containerd must already be prepared and running on the target.
+
 ## Cluster Commands
 
 The cluster commands currently generate validated plans only:
@@ -189,16 +224,23 @@ kubelift
 ├── bundle
 │   ├── create <source-directory>
 │   ├── inspect <bundle.tar.zst>
+│   ├── import-images <IPv4>
 │   ├── manifest <source-directory>
+│   ├── prepare <IPv4>
 │   └── push <IPv4>
 ├── check
 │   └── ssh <IPv4>
 ├── config
 │   ├── init
+│   ├── kubeadm
 │   └── validate
 ├── create
 ├── status
 └── version
 ```
 
-The next implementation stage is to add binary and runtime preparation, systemd setup, image import, and then connect the staged artifacts to `kubeadm init` and `kubeadm join`.
+Binary/runtime preparation, systemd setup, offline image import, and kubeadm
+init configuration rendering are available. A guarded internal Master0
+executor now stages the Bundle, prepares the host, imports images, and invokes
+`kubeadm init`; the public `create` command remains disabled until Cilium and
+cluster health verification are part of the same workflow.
