@@ -21,6 +21,7 @@ import (
 	"path"
 	"time"
 
+	"github.com/QX-hao/kubelift/internal/bundle"
 	"github.com/QX-hao/kubelift/internal/config"
 	"github.com/QX-hao/kubelift/internal/distribute"
 	"github.com/QX-hao/kubelift/internal/preflight"
@@ -69,7 +70,7 @@ the configured offline bundle. This command only stages files under
 		}
 		defer client.Close()
 
-		if err := requireRemotePreflight(ctx, client); err != nil {
+		if err := requireRemotePreflight(ctx, client, *configuration); err != nil {
 			return err
 		}
 		remoteRoot := path.Join("/var/lib/kubelift/staging", configuration.Metadata.Name)
@@ -112,8 +113,20 @@ func requireLocalPreflight(configuration config.Config) error {
 	return nil
 }
 
-func requireRemotePreflight(ctx context.Context, client *remote.Client) error {
+func requireRemotePreflight(ctx context.Context, client *remote.Client, configuration config.Config) error {
 	for _, result := range preflight.CheckRemote(ctx, client) {
+		if result.Err != nil {
+			return fmt.Errorf("remote preflight %s failed: %w", result.Name, result.Err)
+		}
+	}
+	report, err := bundle.Inspect(configuration.Spec.Offline.Bundle)
+	if err != nil {
+		return err
+	}
+	if report.Manifest.Spec.KubernetesVersion != configuration.Spec.Kubernetes.Version {
+		return fmt.Errorf("bundle Kubernetes version %q does not match configured version %q", report.Manifest.Spec.KubernetesVersion, configuration.Spec.Kubernetes.Version)
+	}
+	for _, result := range preflight.CheckRemoteBundle(ctx, client, report.Manifest) {
 		if result.Err != nil {
 			return fmt.Errorf("remote preflight %s failed: %w", result.Name, result.Err)
 		}

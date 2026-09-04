@@ -26,6 +26,10 @@ func TestLocalCheckerPassesSupportedHost(t *testing.T) {
 		interfaceAddresses: func() ([]netip.Addr, error) {
 			return []netip.Addr{netip.MustParseAddr("10.0.0.10")}, nil
 		},
+		processorCount:  2,
+		memoryKB:        func() (uint64, error) { return 2097152, nil },
+		diskAvailableKB: func(string) (uint64, error) { return 52428800, nil },
+		systemdPath:     t.TempDir(),
 	}
 
 	for _, result := range checker.check(configuration) {
@@ -50,11 +54,15 @@ func TestLocalCheckerReportsAllFailures(t *testing.T) {
 		interfaceAddresses: func() ([]netip.Addr, error) {
 			return []netip.Addr{netip.MustParseAddr("10.0.0.11")}, nil
 		},
+		processorCount:  1,
+		memoryKB:        func() (uint64, error) { return 1024, nil },
+		diskAvailableKB: func(string) (uint64, error) { return 1024, nil },
+		systemdPath:     filepath.Join(t.TempDir(), "missing-systemd"),
 	}
 
 	results := checker.check(configuration)
-	if len(results) != 5 {
-		t.Fatalf("check count = %d, want 5", len(results))
+	if len(results) != 9 {
+		t.Fatalf("check count = %d, want 9", len(results))
 	}
 	for _, result := range results {
 		if result.Err == nil {

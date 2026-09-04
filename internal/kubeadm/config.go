@@ -39,6 +39,7 @@ type initConfiguration struct {
 }
 
 type nodeRegistrationOptions struct {
+	Name            string `yaml:"name,omitempty"`
 	CRISocket       string `yaml:"criSocket"`
 	ImagePullPolicy string `yaml:"imagePullPolicy"`
 }

@@ -2,6 +2,8 @@
 
 KubeLift 是一个运行在首个控制平面节点上的 Kubernetes 集群部署 CLI。它通过 SSH 管理其他 Ubuntu 节点，使用 containerd、kubeadm 和 Cilium，并以离线安装作为首个实现目标。
 
+当前每个节点至少需要 2 个逻辑 CPU、约 1.8 GiB 内存、`/var/lib` 下 10 GiB 可用空间，并且必须由 systemd 管理系统服务。你准备的 4C4G、2C2G、2C2G 和每台 50G 磁盘满足这组预检阈值。
+
 ## 命令树
 
 ```text
@@ -65,7 +67,7 @@ kubelift check ssh 192.168.121.152 -f /etc/kubelift/cluster.yaml
 kubelift check ssh 192.168.121.153 -f /etc/kubelift/cluster.yaml
 ```
 
-SSH 检查使用配置中的私钥和同目录下的 `known_hosts`，只启用公钥认证，不会提示输入密码；连接成功后还会只读检查远程主机名、架构、Ubuntu 版本和 swap。首次连接前，请先用相同私钥手动连接并确认远程主机指纹。
+SSH 检查使用配置中的私钥和同目录下的 `known_hosts`，只启用公钥认证，不会提示输入密码；连接成功后还会只读检查远程主机名、架构、Ubuntu 版本、CPU、内存、磁盘空间、systemd、swap 以及 Bundle 兼容性。首次连接前，请先用相同私钥手动连接并确认远程主机指纹。
 
 查看创建和扩容计划：
 
@@ -75,11 +77,43 @@ kubelift add node 10.0.0.21 -f /etc/kubelift/cluster.yaml --dry-run
 kubelift add master 10.0.0.11 -f /etc/kubelift/cluster.yaml --dry-run
 ```
 
+在 Master0 上创建集群；如果执行中断，检查现场后显式恢复：
+
+```bash
+kubelift create -f /etc/kubelift/cluster.yaml
+kubelift create -f /etc/kubelift/cluster.yaml --resume
+```
+
+创建进度保存在 `/var/lib/kubelift/state/<cluster>.yaml`，并绑定当前配置和 Bundle 的 SHA-256。状态不一致或 `kubeadm init` 处于无法确定的中间状态时，KubeLift 会停止，不会自动执行 `kubeadm reset` 或重复初始化。
+
+通过 SSH 添加 Worker：
+
+```bash
+kubelift add node 192.168.121.153 -f /etc/kubelift/cluster.yaml
+```
+
+真实执行目前要求 SSH 用户为 `root`。命令会确认目标尚未加入集群，上传并校验 Bundle，准备 containerd 和 kubelet，直接导入 Kubernetes 与 Cilium 镜像，在 Master0 创建两小时有效的 kubeadm bootstrap token，上传生成的 `JoinConfiguration`，最后等待节点 Ready。Worker 不会导入 Registry 镜像。
+
+首次执行并修改远端节点前，`add node` 会确认 `10250` 端口未被占用；`add master` 会确认 `2379`、`2380`、`6443`、`10250`、`10257` 和 `10259` 均未被占用。端口被占用时命令会直接停止，不会继续安装。`--resume` 会跳过此项检查，因为前一次 `kubeadm join` 可能已经启动相关服务；后续工作由阶段状态文件控制。
+
+通过 SSH 添加控制平面节点：
+
+```bash
+kubelift add master 192.168.121.152 -f /etc/kubelift/cluster.yaml
+```
+
+`add master` 同样要求 SSH 用户为 `root`，并要求首次创建集群前已经配置稳定的 `controlPlane.endpoint`。它会使用短期 certificate key 上传控制面证书，生成控制面 `JoinConfiguration`，加入后等待新节点、API Server 和 etcd 静态 Pod Ready。两个 Master 可以测试加入流程，但两成员 etcd 不能容忍任意一个成员故障；真正的控制面容错需要三个 Master。
+
+节点扩容进度保存在 `/var/lib/kubelift/state/<cluster>-add-<role>-<address>.yaml`。中断后使用相同参数并增加 `--resume` 继续；状态文件不会保存 bootstrap token 或 certificate key。如果无法确认 `kubeadm join` 是否完成，KubeLift 会停止，不会自动重跑 join 或执行 `kubeadm reset`。
+
 查询已有集群的节点状态：
 
 ```bash
 kubelift status --kubeconfig /etc/kubernetes/admin.conf
+kubelift status --details -f /etc/kubelift/cluster.yaml
 ```
+
+`--details` 是只读检查，会显示 Node、Cilium、CoreDNS，以及配置启用时的 host-network Registry；查询失败时会指出具体组件并保留 kubectl 的错误输出。
 
 查看 CLI 版本和构建信息：
 
@@ -92,7 +126,7 @@ kubelift --version
 
 离线包使用 `tar.zst` 格式，根目录必须包含 `manifest.yaml`。清单声明 Kubernetes 版本、CPU 架构、兼容的 Ubuntu 版本、组件版本，以及每个载荷文件的大小和 SHA-256。生成结果示例见 `examples/bundle-manifest.yaml`。
 
-准备源目录时，只能使用下面四类载荷目录：
+准备源目录时，只能使用下面六类载荷目录：
 
 ```text
 bundle-source/
@@ -113,23 +147,23 @@ kubelift bundle manifest ./bundle-source \
   --kubernetes-version v1.28.15 \
   --architecture amd64 \
   --ubuntu-version 22.04,24.04,26.04 \
-  --containerd-version v1.7.0 \
-  --cilium-version v1.14.0 \
-  --registry-version v2.8.0 \
-  --artifact-role bin/kubeadm=kubeadm \
-  --artifact-role bin/kubelet=kubelet \
-  --artifact-role bin/kubectl=kubectl \
-  --artifact-role cri/containerd.tar.gz=containerd \
-  --artifact-role bin/runc=runc \
-  --artifact-role etc/systemd/containerd.service=systemd-unit \
-  --artifact-role etc/systemd/kubelet.service=systemd-unit \
-  --artifact-role etc/containerd/config.toml=containerd-config \
-  --artifact-role scripts/init.sh=init-script \
-  --artifact-role images/kubernetes.tar=kubernetes-image \
-  --artifact-role images/cilium.tar=cilium-image
+  --containerd-version v1.7.27 \
+  --cilium-version v1.14.19 \
+  --registry-version v2.8.3
 ```
 
-`--artifact-role` 可以重复使用，格式是 `载荷相对路径=角色`。支持的角色包括 `kubeadm`、`kubelet`、`kubectl`、`containerd`、`runc`、`systemd-unit`、`containerd-config`、`kubelet-config`、`init-script`、`cni-plugin`、`cri-tool`、`kubernetes-image`、`cilium-image`、`registry-image`、`cilium-manifest` 和 `registry-manifest`。角色目前允许为空，以兼容早期 Bundle；真正安装前应为安装所需载荷补齐角色。
+Cilium manifest 使用 Go 文本模板，使同一个 Bundle 可以用于不同集群。模板中的 Cilium API Server 配置必须包含：
+
+```yaml
+k8s-service-host: "{{ .APIServerHost }}"
+k8s-service-port: "{{ .APIServerPort }}"
+```
+
+模板还可以选择使用 `{{ .PodCIDR }}` 和 `{{ .ClusterName }}`。
+
+当 `registry.enabled: true` 时，Registry 模板必须包含 `{{ .RegistryPort }}` 和 `{{ .RegistryStoragePath }}`，并且只能生成一个 `kube-system/kubelift-registry` 静态 Pod。该 Pod 必须使用 `hostNetwork`、`hostPath`、`app.kubernetes.io/name=kubelift-registry` 标签以及 `imagePullPolicy: Never`。
+
+`--artifact-role` 可以重复使用，格式是 `载荷相对路径=角色`。支持的角色包括 `kubeadm`、`kubelet`、`kubectl`、`containerd`、`runc`、`systemd-unit`、`containerd-config`、`kubelet-config`、`init-script`、`cni-plugin`、`cri-tool`、`kubernetes-image`、`cilium-image`、`registry-image`、`cilium-manifest` 和 `registry-manifest`。约定路径会自动标注；非标准路径仍需显式指定。角色允许为空以容纳非安装载荷，但 `bundle inspect --config` 会拒绝缺少安装角色的 Bundle。
 
 生成清单后创建并立即复验离线包：
 
@@ -171,7 +205,20 @@ kubelift bundle import-images 192.168.121.152
 
 `kubelift check` 也会完整读取离线包，并确认 SHA-256、Kubernetes 版本、CPU 架构和 Ubuntu 兼容范围。SHA-256 能发现内容损坏或与清单不一致，但如果攻击者同时替换离线包和清单，它不能证明文件来自可信发布者；发布阶段还需要增加清单签名。
 
-当前清单定义载荷结构和校验信息。`bundle prepare` 会校验并使用必需的裸二进制、containerd runtime、配置和 systemd 载荷，但还不会导入镜像或初始化 Kubernetes 集群。等 Ubuntu 实机验证确定 Cilium、Registry 和系统镜像的最终载荷布局后，清单会增加更严格的必需角色校验。
+当前清单定义载荷结构和校验信息。`bundle prepare` 会校验并使用必需的裸二进制、containerd runtime、配置和 systemd 载荷；内部 Master0 执行器还会要求 Cilium 模板，并在 `kubeadm init` 后渲染、应用和检查 Cilium。启用 Registry 时，还会要求 Registry 镜像和静态 Pod 模板；关闭时完整跳过缓存链路。
+
+`bin/kubeadm`、`cri/containerd.tar.gz`、`images/kubernetes.tar`、`manifests/cilium.yaml.tmpl` 等约定路径会在生成清单时自动获得安装角色。只有额外文件或非标准文件名才需要使用 `--artifact-role path=role`，显式参数不能覆盖冲突的约定角色。
+
+打包后可以结合集群配置检查完整安装契约：
+
+```bash
+kubelift bundle inspect ./kubernetes-v1.28.15-amd64.tar.zst \
+  --config /etc/kubelift/cluster.yaml
+```
+
+该检查会验证必需的二进制、systemd unit、镜像归档、Cilium 模板、Kubernetes 版本，以及启用 Registry 时所需的 Registry 载荷。
+
+任何远程上传开始前，KubeLift 都会把目标节点的 `uname -m` 和 Ubuntu `VERSION_ID` 与 Bundle 清单比较。一个 Bundle 只对应一种架构（`amd64` 或 `arm64`），但可以声明多个受支持的 Ubuntu 版本；Master0 和所有新增节点都必须与清单匹配。
 
 发布构建可通过链接参数写入版本信息：
 
@@ -181,4 +228,4 @@ go build -ldflags "-X github.com/QX-hao/kubelift/internal/buildinfo.Version=v0.1
 
 ## 开发状态
 
-`config init`、`config validate`、`config kubeadm`、`check`、`check ssh`、`bundle manifest`、`bundle create`、`bundle inspect`、`bundle push`、`bundle prepare`、`bundle import-images`、`status` 和 `version` 已可用。内部 Master0 执行器已经可以完成本地 staging、节点准备、镜像导入和 `kubeadm init` 调用；公开的 `create` 会等 Cilium 安装与集群健康检查接入后再启用。在此之前，不带 `--dry-run` 的 `create` 和 `add` 命令仍会明确失败，不会修改服务器。
+`config init`、`config validate`、`config kubeadm`、`check`、`check ssh`、`bundle manifest`、`bundle create`、`bundle inspect`、`bundle push`、`bundle prepare`、`bundle import-images`、`create`、`add node`、`add master`、`status` 和 `version` 已可用。`create` 可以完成本地 staging、节点准备、镜像导入、`kubeadm init`、Cilium 安装、API Server/节点/CoreDNS 健康检查以及可选 Registry 缓存启动，并支持基于阶段状态的显式恢复。`add node` 和 `add master` 已分别支持 Worker 与控制平面节点加入。

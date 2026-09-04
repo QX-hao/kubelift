@@ -21,6 +21,7 @@ import (
 	"net/netip"
 	"time"
 
+	"github.com/QX-hao/kubelift/internal/bundle"
 	"github.com/QX-hao/kubelift/internal/config"
 	"github.com/QX-hao/kubelift/internal/preflight"
 	"github.com/QX-hao/kubelift/internal/remote"
@@ -66,6 +67,11 @@ keyboard-interactive authentication are disabled.`,
 		defer client.Close()
 
 		results := preflight.CheckRemote(ctx, client)
+		bundleReport, err := bundle.Inspect(configuration.Spec.Offline.Bundle)
+		if err != nil {
+			return err
+		}
+		results = append(results, preflight.CheckRemoteBundle(ctx, client, bundleReport.Manifest)...)
 		failed := false
 		for _, result := range results {
 			if result.Err != nil {

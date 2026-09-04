@@ -93,6 +93,40 @@ func TestWriteManifestAppliesArtifactRoles(t *testing.T) {
 	}
 }
 
+func TestWriteManifestInfersConventionalArtifactRoles(t *testing.T) {
+	source := t.TempDir()
+	writePayload(t, source, "bin/kubeadm", "binary")
+	writePayload(t, source, "images/kubernetes.tar", "image")
+
+	_, err := WriteManifest(source, validManifestOptions())
+	if err != nil {
+		t.Fatalf("WriteManifest() error = %v", err)
+	}
+	contents, err := os.ReadFile(filepath.Join(source, ManifestPath))
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	manifest, err := ParseManifest(contents)
+	if err != nil {
+		t.Fatalf("ParseManifest() error = %v", err)
+	}
+	if len(manifest.FilesForRole("kubeadm")) != 1 || len(manifest.FilesForRole("kubernetes-image")) != 1 {
+		t.Fatalf("inferred roles = %+v", manifest.Spec.Files)
+	}
+}
+
+func TestWriteManifestRejectsConflictingConventionalRole(t *testing.T) {
+	source := t.TempDir()
+	writePayload(t, source, "bin/kubeadm", "binary")
+	options := validManifestOptions()
+	options.ArtifactRoles = map[string]string{"bin/kubeadm": "kubectl"}
+
+	_, err := WriteManifest(source, options)
+	if err == nil || !strings.Contains(err.Error(), "conflicts with inferred role") {
+		t.Fatalf("WriteManifest() error = %v, want role conflict", err)
+	}
+}
+
 func TestParseArtifactRolesRejectsInvalidAssignments(t *testing.T) {
 	for _, value := range []string{"missing-separator", "=kubeadm", "bin/kubeadm=", "../kubeadm=kubeadm", "bin\\kubeadm=kubeadm"} {
 		if _, err := ParseArtifactRoles([]string{value}); err == nil {

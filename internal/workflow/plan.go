@@ -60,9 +60,9 @@ func CreatePlan(configuration config.Config) Plan {
 			{Name: "install-runtime", Description: "Install and configure containerd"},
 			{Name: "import-images", Description: "Import control-plane, Registry, and Cilium images into containerd"},
 			{Name: "init-control-plane", Description: "Initialize Master0 with kubeadm without kube-proxy"},
-			{Name: "start-registry", Description: "Start and seed the host-network Registry static Pod"},
 			{Name: "install-cilium", Description: "Install Cilium with kube-proxy replacement enabled"},
 			{Name: "verify-cluster", Description: "Wait for the control plane, Cilium, and CoreDNS to become healthy"},
+			{Name: "start-registry", Description: "Start and verify the host-network Registry static Pod cache"},
 		},
 	}
 }
@@ -105,8 +105,8 @@ func AddPlan(configuration config.Config, role Role, options AddOptions) (Plan, 
 		{Name: "preflight", Description: "Validate the target Ubuntu host and Kubernetes prerequisites"},
 		{Name: "prepare-host", Description: "Prepare the operating system for Kubernetes"},
 		{Name: "install-components", Description: "Install containerd, kubelet, and kubeadm"},
-		// Registry 不可用时必须回退到传输离线包并直接导入，不能中断扩容。
-		{Name: "prepare-images", Description: "Pull images from the Registry, falling back to direct offline import"},
+		// 节点加入首版直接传输并导入镜像，不依赖集群内 Registry 可用性。
+		{Name: "prepare-images", Description: "Transfer and import the required offline images directly"},
 	}
 	if role == RoleMaster {
 		steps = append(steps,

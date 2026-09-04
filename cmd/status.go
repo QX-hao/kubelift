@@ -21,12 +21,15 @@ import (
 	"time"
 
 	"github.com/QX-hao/kubelift/internal/clusterstatus"
+	"github.com/QX-hao/kubelift/internal/config"
 	"github.com/spf13/cobra"
 )
 
 var (
 	statusKubeconfigPath = "/etc/kubernetes/admin.conf"
 	statusTimeout        = 15 * time.Second
+	statusDetails        bool
+	statusConfigPath     = defaultClusterConfigPath
 )
 
 var statusCmd = &cobra.Command{
@@ -41,7 +44,17 @@ var statusCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(cmd.Context(), statusTimeout)
 		defer cancel()
 
-		output, err := clusterstatus.Run(ctx, statusKubeconfigPath)
+		var output []byte
+		var err error
+		if statusDetails {
+			configuration, loadErr := config.Load(statusConfigPath)
+			if loadErr != nil {
+				return loadErr
+			}
+			output, err = clusterstatus.RunDetails(ctx, statusKubeconfigPath, configuration.Spec.Registry.Enabled)
+		} else {
+			output, err = clusterstatus.Run(ctx, statusKubeconfigPath)
+		}
 		if err != nil {
 			return err
 		}
@@ -54,4 +67,6 @@ func init() {
 	rootCmd.AddCommand(statusCmd)
 	statusCmd.Flags().StringVar(&statusKubeconfigPath, "kubeconfig", statusKubeconfigPath, "path to the Kubernetes admin kubeconfig")
 	statusCmd.Flags().DurationVar(&statusTimeout, "timeout", statusTimeout, "maximum time to wait for the cluster response")
+	statusCmd.Flags().BoolVar(&statusDetails, "details", false, "show nodes, Cilium, CoreDNS, and the optional Registry")
+	statusCmd.Flags().StringVarP(&statusConfigPath, "config", "f", statusConfigPath, "path to the cluster configuration file used by --details")
 }

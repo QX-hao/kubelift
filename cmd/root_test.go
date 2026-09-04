@@ -153,7 +153,7 @@ func TestConfigKubeadmRendersOfflineInitConfiguration(t *testing.T) {
 	}
 }
 
-func TestCreateAndAddCommandsFailClosedWithoutDryRun(t *testing.T) {
+func TestCreateDryRunAndAddCommands(t *testing.T) {
 	path := writeCLIConfiguration(t, true)
 
 	output, err := runCLI(t, "create", "-f", path, "--dry-run")
@@ -163,9 +163,13 @@ func TestCreateAndAddCommandsFailClosedWithoutDryRun(t *testing.T) {
 	if !strings.Contains(output, "Dry-run plan: create cluster") || !strings.Contains(output, "install-cilium") {
 		t.Fatalf("create --dry-run output = %q", output)
 	}
-	output, err = runCLI(t, "create", "-f", path)
-	if err == nil || !strings.Contains(output, "execution is not enabled yet") {
-		t.Fatalf("create error = %v, output = %q", err, output)
+	output, err = runCLI(t, "create", "-f", path, "--timeout", "0s")
+	if err == nil || !strings.Contains(output, "create timeout must be greater than zero") {
+		t.Fatalf("create timeout error = %v, output = %q", err, output)
+	}
+	output, err = runCLI(t, "create", "-f", path, "--dry-run", "--resume")
+	if err == nil || !strings.Contains(output, "cannot be used together") {
+		t.Fatalf("create flag conflict error = %v, output = %q", err, output)
 	}
 
 	output, err = runCLI(
@@ -183,9 +187,17 @@ func TestCreateAndAddCommandsFailClosedWithoutDryRun(t *testing.T) {
 	if !strings.Contains(output, "SSH: ubuntu@10.0.0.21:2222 using /tmp/other-key") {
 		t.Fatalf("add node --dry-run output = %q", output)
 	}
-	output, err = runCLI(t, "add", "node", "10.0.0.21", "-f", path)
-	if err == nil || !strings.Contains(output, "execution is not enabled yet") {
-		t.Fatalf("add node error = %v, output = %q", err, output)
+	output, err = runCLI(t, "add", "node", "10.0.0.21", "-f", path, "--timeout", "0s")
+	if err == nil || !strings.Contains(output, "add node timeout must be greater than zero") {
+		t.Fatalf("add node timeout error = %v, output = %q", err, output)
+	}
+	output, err = runCLI(t, "add", "master", "10.0.0.11", "-f", path, "--timeout", "0s")
+	if err == nil || !strings.Contains(output, "add master timeout must be greater than zero") {
+		t.Fatalf("add master timeout error = %v, output = %q", err, output)
+	}
+	output, err = runCLI(t, "add", "node", "10.0.0.21", "-f", path, "--dry-run", "--resume")
+	if err == nil || !strings.Contains(output, "cannot be used together") {
+		t.Fatalf("add flag conflict error = %v, output = %q", err, output)
 	}
 }
 
@@ -241,12 +253,22 @@ func TestBundleManifestCreateAndInspectCommands(t *testing.T) {
 			t.Errorf("bundle inspect output does not contain %q:\n%s", want, output)
 		}
 	}
+	configurationPath := writeCLIConfiguration(t, true)
+	output, err = runCLI(t, "bundle", "inspect", bundlePath, "--config", configurationPath)
+	if err == nil || !strings.Contains(output, "requires exactly 1 \"kubeadm\" payload") {
+		t.Fatalf("bundle profile validation error = %v, output = %q", err, output)
+	}
 }
 
 func TestStatusAndVersionRejectInvalidArguments(t *testing.T) {
 	output, err := runCLI(t, "status", "--timeout", "0s")
 	if err == nil || !strings.Contains(output, "timeout must be greater than zero") {
 		t.Fatalf("status error = %v, output = %q", err, output)
+	}
+	missingConfig := filepath.Join(t.TempDir(), "missing.yaml")
+	output, err = runCLI(t, "status", "--details", "--config", missingConfig)
+	if err == nil || !strings.Contains(output, "open cluster configuration") {
+		t.Fatalf("status details config error = %v, output = %q", err, output)
 	}
 	output, err = runCLI(t, "version", "extra")
 	if err == nil || !strings.Contains(output, "extra") {

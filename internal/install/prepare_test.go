@@ -38,10 +38,10 @@ func TestPrepareNodeBuildsBinaryRuntimeAndSystemdCommand(t *testing.T) {
 		"install -m 0755 -- '/var/lib/kubelift/staging/production/bin/kubeadm' '/usr/bin/kubeadm'",
 		"install -m 0755 -- '/var/lib/kubelift/staging/production/bin/crictl' '/usr/bin/crictl'",
 		"install -m 0755 -- '/var/lib/kubelift/staging/production/bin/cilium-cni' '/opt/cni/bin/cilium-cni'",
-		"tar -xzf '/var/lib/kubelift/staging/production/cri/containerd.tar.gz' --strip-components=2 -C /usr/bin",
+		"tar -xzf '/var/lib/kubelift/staging/production/cri/containerd.tar.gz' --strip-components=1 -C /usr/bin",
 		"install -m 0644 -- '/var/lib/kubelift/staging/production/etc/containerd/config.toml' /etc/containerd/config.toml",
 		"install -m 0644 -- '/var/lib/kubelift/staging/production/etc/systemd/containerd.service' '/etc/systemd/system/containerd.service'",
-		"systemctl daemon-reload && systemctl enable containerd.service && systemctl restart containerd.service && systemctl enable kubelet.service",
+		"systemctl daemon-reload && systemctl enable containerd.service && systemctl restart containerd.service && systemctl is-active --quiet containerd.service && systemctl enable kubelet.service && systemctl restart kubelet.service",
 	} {
 		if !strings.Contains(runner.command, expected) {
 			t.Errorf("command does not contain %q:\n%s", expected, runner.command)

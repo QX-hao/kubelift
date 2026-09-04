@@ -70,7 +70,7 @@ install Cilium.`,
 		}
 		defer client.Close()
 
-		if err := requireRemotePreflight(ctx, client); err != nil {
+		if err := requireRemotePreflight(ctx, client, *configuration); err != nil {
 			return err
 		}
 		remoteRoot := path.Join("/var/lib/kubelift/staging", configuration.Metadata.Name)

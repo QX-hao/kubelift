@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/QX-hao/kubelift/internal/bundle"
 	"github.com/QX-hao/kubelift/internal/config"
@@ -37,6 +38,10 @@ type localChecker struct {
 	operatingSystem    string
 	architecture       string
 	interfaceAddresses func() ([]netip.Addr, error)
+	processorCount     int
+	memoryKB           func() (uint64, error)
+	diskAvailableKB    func(string) (uint64, error)
+	systemdPath        string
 }
 
 func CheckLocal(configuration config.Config) []Result {
@@ -45,6 +50,10 @@ func CheckLocal(configuration config.Config) []Result {
 		operatingSystem:    runtime.GOOS,
 		architecture:       runtime.GOARCH,
 		interfaceAddresses: activeInterfaceAddresses,
+		processorCount:     runtime.NumCPU(),
+		memoryKB:           readMemoryKB,
+		diskAvailableKB:    availableDiskKB,
+		systemdPath:        "/run/systemd/system",
 	}
 	return checker.check(configuration)
 }
@@ -56,7 +65,101 @@ func (c localChecker) check(configuration config.Config) []Result {
 		c.checkAdvertiseAddress(configuration.Spec.ControlPlane.AdvertiseAddress),
 		c.checkOfflineBundle(configuration),
 		checkRegularFile("SSH private key", configuration.Spec.SSH.PrivateKey, true),
+		c.checkCPU(),
+		c.checkMemory(),
+		c.checkDisk(),
+		c.checkSystemd(),
 	}
+}
+
+func (c localChecker) checkCPU() Result {
+	result := Result{Name: "CPU"}
+	if c.processorCount < minimumCPUCount {
+		result.Err = fmt.Errorf("requires at least %d logical processors, detected %d", minimumCPUCount, c.processorCount)
+		return result
+	}
+	result.Detail = fmt.Sprintf("%d logical processors", c.processorCount)
+	return result
+}
+
+func (c localChecker) checkMemory() Result {
+	result := Result{Name: "memory"}
+	if c.memoryKB == nil {
+		result.Err = fmt.Errorf("memory checker is unavailable")
+		return result
+	}
+	value, err := c.memoryKB()
+	if err != nil {
+		result.Err = err
+		return result
+	}
+	if value < minimumMemoryKB {
+		result.Err = fmt.Errorf("requires at least %d KiB, detected %d", minimumMemoryKB, value)
+		return result
+	}
+	result.Detail = fmt.Sprintf("%d KiB", value)
+	return result
+}
+
+func (c localChecker) checkDisk() Result {
+	result := Result{Name: "disk"}
+	if c.diskAvailableKB == nil {
+		result.Err = fmt.Errorf("disk checker is unavailable")
+		return result
+	}
+	value, err := c.diskAvailableKB("/var/lib")
+	if err != nil {
+		result.Err = err
+		return result
+	}
+	if value < minimumDiskKB {
+		result.Err = fmt.Errorf("requires at least %d KiB available under /var/lib, detected %d", minimumDiskKB, value)
+		return result
+	}
+	result.Detail = fmt.Sprintf("%d KiB available under /var/lib", value)
+	return result
+}
+
+func (c localChecker) checkSystemd() Result {
+	result := Result{Name: "systemd"}
+	info, err := os.Stat(c.systemdPath)
+	if err != nil || !info.IsDir() {
+		result.Err = fmt.Errorf("systemd is not running")
+		return result
+	}
+	result.Detail = "running"
+	return result
+}
+
+func readMemoryKB() (uint64, error) {
+	file, err := os.Open("/proc/meminfo")
+	if err != nil {
+		return 0, fmt.Errorf("read system memory: %w", err)
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) >= 2 && fields[0] == "MemTotal:" {
+			value, err := strconv.ParseUint(fields[1], 10, 64)
+			if err != nil {
+				return 0, fmt.Errorf("parse system memory: %w", err)
+			}
+			return value, nil
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return 0, fmt.Errorf("read system memory: %w", err)
+	}
+	return 0, fmt.Errorf("MemTotal is missing from /proc/meminfo")
+}
+
+func availableDiskKB(path string) (uint64, error) {
+	var statistics syscall.Statfs_t
+	if err := syscall.Statfs(path, &statistics); err != nil {
+		return 0, fmt.Errorf("read available disk space for %q: %w", path, err)
+	}
+	return uint64(statistics.Bavail) * uint64(statistics.Bsize) / 1024, nil
 }
 
 func (c localChecker) checkOperatingSystem() Result {

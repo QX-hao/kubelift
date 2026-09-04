@@ -19,9 +19,9 @@ func TestCreatePlanContainsBootstrapStages(t *testing.T) {
 		"install-runtime",
 		"import-images",
 		"init-control-plane",
-		"start-registry",
 		"install-cilium",
 		"verify-cluster",
+		"start-registry",
 	}
 	if len(plan.Steps) != len(wantSteps) {
 		t.Fatalf("step count = %d, want %d", len(plan.Steps), len(wantSteps))

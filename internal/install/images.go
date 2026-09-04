@@ -32,9 +32,14 @@ type ImageReport struct {
 	RegistryCount   int
 }
 
+// ImageOptions 控制可选镜像角色是否进入节点。
+type ImageOptions struct {
+	IncludeRegistry bool
+}
+
 // ImportImages 将 Bundle 中的镜像归档导入 containerd 的 k8s.io namespace。
 // containerd 必须已经由 PrepareNode 安装并运行；该步骤不会访问镜像仓库。
-func ImportImages(ctx context.Context, runner CommandRunner, remoteRoot string, manifest bundle.Manifest) (ImageReport, error) {
+func ImportImages(ctx context.Context, runner CommandRunner, remoteRoot string, manifest bundle.Manifest, options ImageOptions) (ImageReport, error) {
 	if runner == nil {
 		return ImageReport{}, fmt.Errorf("image importer command runner is required")
 	}
@@ -45,14 +50,17 @@ func ImportImages(ctx context.Context, runner CommandRunner, remoteRoot string, 
 		return ImageReport{}, fmt.Errorf("validate offline bundle manifest: %w", err)
 	}
 
-	roles := []struct {
+	type imageRole struct {
 		name     string
 		required bool
 		add      func(*ImageReport)
-	}{
+	}
+	roles := []imageRole{
 		{name: "kubernetes-image", required: true, add: func(report *ImageReport) { report.KubernetesCount++ }},
 		{name: "cilium-image", required: true, add: func(report *ImageReport) { report.CiliumCount++ }},
-		{name: "registry-image", add: func(report *ImageReport) { report.RegistryCount++ }},
+	}
+	if options.IncludeRegistry {
+		roles = append(roles, imageRole{name: "registry-image", required: true, add: func(report *ImageReport) { report.RegistryCount++ }})
 	}
 
 	steps := make([]string, 0)

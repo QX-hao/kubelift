@@ -15,12 +15,43 @@ type fakeRunner struct {
 	args   []string
 	output []byte
 	err    error
+	calls  [][]string
 }
 
 func (r *fakeRunner) combinedOutput(_ context.Context, name string, args ...string) ([]byte, error) {
 	r.name = name
 	r.args = append([]string(nil), args...)
+	r.calls = append(r.calls, append([]string{name}, args...))
 	return r.output, r.err
+}
+
+func TestRunDetailsQueriesInstalledComponents(t *testing.T) {
+	kubeconfigPath := writeKubeconfig(t)
+	runner := &fakeRunner{output: []byte("NAME READY\n")}
+
+	output, err := runDetails(context.Background(), kubeconfigPath, true, runner)
+	if err != nil {
+		t.Fatalf("runDetails() error = %v", err)
+	}
+	for _, heading := range []string{"[Nodes]", "[Cilium]", "[CoreDNS]", "[Registry]"} {
+		if !strings.Contains(string(output), heading) {
+			t.Errorf("detailed output does not contain %q:\n%s", heading, output)
+		}
+	}
+	if len(runner.calls) != 4 {
+		t.Fatalf("kubectl calls = %v, want 4", runner.calls)
+	}
+}
+
+func TestRunDetailsSkipsDisabledRegistry(t *testing.T) {
+	runner := &fakeRunner{output: []byte("ok\n")}
+	output, err := runDetails(context.Background(), writeKubeconfig(t), false, runner)
+	if err != nil {
+		t.Fatalf("runDetails() error = %v", err)
+	}
+	if strings.Contains(string(output), "[Registry]") || len(runner.calls) != 3 {
+		t.Fatalf("disabled Registry output = %q, calls = %v", output, runner.calls)
+	}
 }
 
 func TestRunQueriesNodesWithConfiguredKubeconfig(t *testing.T) {

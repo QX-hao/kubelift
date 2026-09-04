@@ -109,7 +109,8 @@ func PrepareNode(ctx context.Context, runner CommandRunner, remoteRoot string, m
 	if err != nil {
 		return Report{}, err
 	}
-	steps = append(steps, "tar -xzf "+shellQuote(containerdPath)+" --strip-components=2 -C /usr/bin")
+	// 官方 containerd 归档以 bin/ 为根目录，去掉一层后安装到 /usr/bin。
+	steps = append(steps, "tar -xzf "+shellQuote(containerdPath)+" --strip-components=1 -C /usr/bin")
 	report.RuntimeCount = 1
 
 	configFiles := manifest.FilesForRole("containerd-config")
@@ -150,7 +151,9 @@ func PrepareNode(ctx context.Context, runner CommandRunner, remoteRoot string, m
 		"systemctl daemon-reload",
 		"systemctl enable containerd.service",
 		"systemctl restart containerd.service",
+		"systemctl is-active --quiet containerd.service",
 		"systemctl enable kubelet.service",
+		"systemctl restart kubelet.service",
 	)
 	command := strings.Join(steps, " && ")
 	result, err := runner.Run(ctx, command)

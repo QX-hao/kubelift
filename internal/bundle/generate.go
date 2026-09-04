@@ -25,6 +25,25 @@ type ManifestOptions struct {
 	ArtifactRoles     map[string]string
 }
 
+var conventionalArtifactRoles = map[string]string{
+	"bin/kubeadm":                    "kubeadm",
+	"bin/kubelet":                    "kubelet",
+	"bin/kubectl":                    "kubectl",
+	"bin/crictl":                     "cri-tool",
+	"bin/conntrack":                  "cri-tool",
+	"bin/runc":                       "runc",
+	"cri/containerd.tar.gz":          "containerd",
+	"etc/containerd/config.toml":     "containerd-config",
+	"etc/systemd/containerd.service": "systemd-unit",
+	"etc/systemd/kubelet.service":    "systemd-unit",
+	"images/kubernetes.tar":          "kubernetes-image",
+	"images/cilium.tar":              "cilium-image",
+	"images/registry.tar":            "registry-image",
+	"manifests/cilium.yaml.tmpl":     "cilium-manifest",
+	"manifests/registry.yaml.tmpl":   "registry-manifest",
+	"scripts/init.sh":                "init-script",
+}
+
 func WriteManifest(sourceDirectory string, options ManifestOptions) (string, error) {
 	info, err := os.Stat(sourceDirectory)
 	if err != nil {
@@ -63,6 +82,7 @@ func WriteManifest(sourceDirectory string, options ManifestOptions) (string, err
 	if err != nil {
 		return "", err
 	}
+	applyConventionalArtifactRoles(files)
 	if err := applyArtifactRoles(files, options.ArtifactRoles); err != nil {
 		return "", err
 	}
@@ -95,6 +115,14 @@ func WriteManifest(sourceDirectory string, options ManifestOptions) (string, err
 	return manifestPath, nil
 }
 
+func applyConventionalArtifactRoles(files []File) {
+	for index := range files {
+		if role, exists := conventionalArtifactRoles[files[index].Path]; exists {
+			files[index].Role = role
+		}
+	}
+}
+
 // ParseArtifactRoles 将 path=role 形式的命令行参数转换为角色映射。
 func ParseArtifactRoles(values []string) (map[string]string, error) {
 	roles := make(map[string]string, len(values))
@@ -125,6 +153,9 @@ func applyArtifactRoles(files []File, roles map[string]string) error {
 		index, exists := declared[path]
 		if !exists {
 			return fmt.Errorf("artifact role references undeclared payload %q", path)
+		}
+		if inferred := files[index].Role; inferred != "" && inferred != role {
+			return fmt.Errorf("artifact role %q for conventional path %q conflicts with inferred role %q", role, path, inferred)
 		}
 		files[index].Role = role
 	}

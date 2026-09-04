@@ -11,7 +11,7 @@ import (
 
 func TestImportImagesBuildsCtrCommandsByRole(t *testing.T) {
 	runner := &fakeCommandRunner{}
-	report, err := ImportImages(context.Background(), runner, "/var/lib/kubelift/staging/production", imageManifest())
+	report, err := ImportImages(context.Background(), runner, "/var/lib/kubelift/staging/production", imageManifest(), ImageOptions{IncludeRegistry: true})
 	if err != nil {
 		t.Fatalf("ImportImages() error = %v", err)
 	}
@@ -37,14 +37,14 @@ func TestImportImagesBuildsCtrCommandsByRole(t *testing.T) {
 func TestImportImagesRequiresKubernetesAndCiliumImages(t *testing.T) {
 	manifest := imageManifest()
 	manifest.Spec.Files = manifest.Spec.Files[1:]
-	_, err := ImportImages(context.Background(), &fakeCommandRunner{}, "/var/lib/kubelift/staging/production", manifest)
+	_, err := ImportImages(context.Background(), &fakeCommandRunner{}, "/var/lib/kubelift/staging/production", manifest, ImageOptions{})
 	if err == nil || !strings.Contains(err.Error(), `"kubernetes-image" archive`) {
 		t.Fatalf("ImportImages() error = %v, want missing Kubernetes image error", err)
 	}
 
 	manifest = imageManifest()
 	manifest.Spec.Files = manifest.Spec.Files[:1]
-	_, err = ImportImages(context.Background(), &fakeCommandRunner{}, "/var/lib/kubelift/staging/production", manifest)
+	_, err = ImportImages(context.Background(), &fakeCommandRunner{}, "/var/lib/kubelift/staging/production", manifest, ImageOptions{})
 	if err == nil || !strings.Contains(err.Error(), `"cilium-image" archive`) {
 		t.Fatalf("ImportImages() error = %v, want missing Cilium image error", err)
 	}
@@ -55,9 +55,20 @@ func TestImportImagesReportsRemoteFailure(t *testing.T) {
 		result: remote.CommandResult{Stderr: "ctr: failed to unpack image"},
 		err:    context.Canceled,
 	}
-	_, err := ImportImages(context.Background(), runner, "/var/lib/kubelift/staging/production", imageManifest())
+	_, err := ImportImages(context.Background(), runner, "/var/lib/kubelift/staging/production", imageManifest(), ImageOptions{})
 	if err == nil || !strings.Contains(err.Error(), "ctr: failed to unpack image") {
 		t.Fatalf("ImportImages() error = %v, want remote stderr", err)
+	}
+}
+
+func TestImportImagesSkipsRegistryWhenDisabled(t *testing.T) {
+	runner := &fakeCommandRunner{}
+	report, err := ImportImages(context.Background(), runner, "/var/lib/kubelift/staging/production", imageManifest(), ImageOptions{})
+	if err != nil {
+		t.Fatalf("ImportImages() error = %v", err)
+	}
+	if report.RegistryCount != 0 || strings.Contains(runner.command, "registry.tar") {
+		t.Fatalf("Registry image was imported while disabled: report=%+v command=%s", report, runner.command)
 	}
 }
 

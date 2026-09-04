@@ -69,7 +69,7 @@ namespace. This command does not pull from a registry or run kubeadm.`,
 		}
 		defer client.Close()
 
-		if err := requireRemotePreflight(ctx, client); err != nil {
+		if err := requireRemotePreflight(ctx, client, *configuration); err != nil {
 			return err
 		}
 		remoteRoot := path.Join("/var/lib/kubelift/staging", configuration.Metadata.Name)
@@ -77,7 +77,9 @@ namespace. This command does not pull from a registry or run kubeadm.`,
 		if err != nil {
 			return err
 		}
-		images, err := install.ImportImages(ctx, client, report.RemoteRoot, report.Manifest)
+		images, err := install.ImportImages(ctx, client, report.RemoteRoot, report.Manifest, install.ImageOptions{
+			IncludeRegistry: configuration.Spec.Registry.Enabled,
+		})
 		if err != nil {
 			return err
 		}

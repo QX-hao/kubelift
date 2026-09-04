@@ -16,6 +16,10 @@ limitations under the License.
 package cmd
 
 import (
+	"context"
+	"fmt"
+	"time"
+
 	"github.com/QX-hao/kubelift/internal/config"
 	"github.com/QX-hao/kubelift/internal/workflow"
 	"github.com/spf13/cobra"
@@ -24,6 +28,8 @@ import (
 var (
 	createConfigPath string
 	createDryRun     bool
+	createResume     bool
+	createTimeout    = 60 * time.Minute
 )
 
 var createCmd = &cobra.Command{
@@ -33,15 +39,40 @@ var createCmd = &cobra.Command{
 bundle. Additional masters and workers are joined later with kubelift add.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if createTimeout <= 0 {
+			return fmt.Errorf("create timeout must be greater than zero")
+		}
+		if createDryRun && createResume {
+			return fmt.Errorf("--dry-run and --resume cannot be used together")
+		}
 		configuration, err := config.Load(createConfigPath)
 		if err != nil {
 			return err
 		}
 		plan := workflow.CreatePlan(*configuration)
-		if !createDryRun {
-			return executionUnavailable(plan.Action)
+		if createDryRun {
+			return printPlan(cmd, plan)
 		}
-		return printPlan(cmd, plan)
+		if err := requireLocalPreflight(*configuration); err != nil {
+			return err
+		}
+		ctx, cancel := context.WithTimeout(cmd.Context(), createTimeout)
+		defer cancel()
+		result, err := workflow.NewLocalCreateExecutor().ExecuteCreate(ctx, *configuration, workflow.CreateOptions{Resume: createResume})
+		if err != nil {
+			return err
+		}
+		if result.AlreadyComplete {
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Cluster %q creation is already complete.\n", configuration.Metadata.Name)
+			return err
+		}
+		if result.KubeadmOutput != "" {
+			if _, err := fmt.Fprintln(cmd.OutOrStdout(), result.KubeadmOutput); err != nil {
+				return err
+			}
+		}
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Cluster %q created successfully. State: %s.\n", configuration.Metadata.Name, result.Phase)
+		return err
 	},
 }
 
@@ -61,4 +92,6 @@ func init() {
 		false,
 		"print the validated plan without changing the system",
 	)
+	createCmd.Flags().BoolVar(&createResume, "resume", false, "continue a previously interrupted cluster creation")
+	createCmd.Flags().DurationVar(&createTimeout, "timeout", createTimeout, "maximum time to create the cluster")
 }
