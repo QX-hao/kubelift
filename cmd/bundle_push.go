@@ -114,7 +114,30 @@ func requireLocalPreflight(configuration config.Config) error {
 }
 
 func requireRemotePreflight(ctx context.Context, client *remote.Client, configuration config.Config) error {
-	for _, result := range preflight.CheckRemote(ctx, client) {
+	return requireRemotePreflightMode(ctx, client, configuration, false)
+}
+
+func requireRemoteInstallPreflight(ctx context.Context, client *remote.Client, configuration config.Config) error {
+	return requireRemotePreflightMode(ctx, client, configuration, true)
+}
+
+func requireRemotePreflightMode(ctx context.Context, client *remote.Client, configuration config.Config, prepare bool) error {
+	results := preflight.CheckRemote(ctx, client)
+	if prepare {
+		failed := make([]preflight.Result, 0, 1)
+		for _, result := range results {
+			if result.Err != nil {
+				failed = append(failed, result)
+			}
+		}
+		if len(failed) == 1 && failed[0].Name == "swap" {
+			if result := preflight.PrepareSwap(ctx, client); result.Err != nil {
+				return fmt.Errorf("remote preflight %s preparation failed: %w", result.Name, result.Err)
+			}
+			results = preflight.CheckRemote(ctx, client)
+		}
+	}
+	for _, result := range results {
 		if result.Err != nil {
 			return fmt.Errorf("remote preflight %s failed: %w", result.Name, result.Err)
 		}

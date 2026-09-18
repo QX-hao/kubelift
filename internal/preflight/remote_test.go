@@ -14,6 +14,17 @@ type fakeRemoteRunner struct {
 	results map[string]remote.CommandResult
 }
 
+type recordingRemoteRunner struct {
+	command string
+	result  remote.CommandResult
+	err     error
+}
+
+func (r *recordingRemoteRunner) Run(_ context.Context, command string) (remote.CommandResult, error) {
+	r.command = command
+	return r.result, r.err
+}
+
 func TestCheckRemoteBundleRejectsPlatformMismatch(t *testing.T) {
 	runner := fakeRemoteRunner{results: map[string]remote.CommandResult{
 		"uname -m":            {Stdout: "aarch64\n"},
@@ -93,5 +104,24 @@ func TestCheckRemoteRejectsSwapAndUnsupportedOS(t *testing.T) {
 	}
 	if results[3].Err == nil || !strings.Contains(results[3].Err.Error(), "swap is enabled") {
 		t.Errorf("swap error = %v, want enabled swap error", results[3].Err)
+	}
+}
+
+func TestPrepareSwapDisablesCurrentAndPersistentSwap(t *testing.T) {
+	runner := &recordingRemoteRunner{result: remote.CommandResult{Stdout: "disabled"}}
+	result := PrepareSwap(context.Background(), runner)
+	if result.Err != nil {
+		t.Fatalf("PrepareSwap() error = %v", result.Err)
+	}
+	for _, expected := range []string{
+		"swapoff -a",
+		"/etc/fstab.kubelift.bak",
+		"sed -i -E",
+		"systemctl daemon-reload",
+		"swap is still enabled after preparation",
+	} {
+		if !strings.Contains(runner.command, expected) {
+			t.Errorf("PrepareSwap() command does not contain %q: %s", expected, runner.command)
+		}
 	}
 }

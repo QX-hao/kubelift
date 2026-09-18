@@ -31,6 +31,9 @@ func TestPrepareNodeBuildsBinaryRuntimeAndSystemdCommand(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"/etc/modules-load.d/kubelift.conf",
+		"swapoff -a",
+		"/etc/fstab.kubelift.bak",
+		"swap is still enabled after preparation",
 		"modprobe overlay",
 		"modprobe br_netfilter",
 		"net.ipv4.ip_forward = 1",

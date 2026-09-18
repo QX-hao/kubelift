@@ -105,7 +105,10 @@ kubelift check ssh 192.168.121.153
 
 The remote check is read-only. It verifies the SSH connection, hostname,
 architecture, Ubuntu version, CPU, memory, free disk space, systemd, swap, and
-Bundle compatibility.
+Bundle compatibility. It does not change the remote host. The create, add, and
+`bundle prepare` installation paths automatically disable active swap and
+comment matching swap entries in `/etc/fstab`, keeping a backup at
+`/etc/fstab.kubelift.bak`.
 
 ## Offline Bundles
 

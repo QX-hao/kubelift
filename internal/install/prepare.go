@@ -58,6 +58,11 @@ func PrepareNode(ctx context.Context, runner CommandRunner, remoteRoot string, m
 	steps = append(steps,
 		"set -eu",
 		"install -d -m 0755 -- /usr/bin /opt/cni/bin /etc/containerd /etc/systemd/system /etc/modules-load.d /etc/sysctl.d",
+		// kubeadm 不支持启用 swap；同时修改 fstab，避免重启后 swap 恢复。
+		"if [ -n \"$(swapon --noheadings --show)\" ]; then swapoff -a; fi",
+		"if [ -f /etc/fstab ]; then if [ ! -e /etc/fstab.kubelift.bak ]; then cp -a -- /etc/fstab /etc/fstab.kubelift.bak; fi; sed -i -E '/^[[:space:]]*[^#].*[[:space:]]swap([[:space:]]|$)/ s/^/#/' /etc/fstab; fi",
+		"systemctl daemon-reload",
+		"if [ -n \"$(swapon --noheadings --show)\" ]; then echo 'swap is still enabled after preparation' >&2; exit 1; fi",
 		"printf '%s' "+shellQuote("overlay\nbr_netfilter\n")+" > /etc/modules-load.d/kubelift.conf",
 		"modprobe overlay",
 		"modprobe br_netfilter",

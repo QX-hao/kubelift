@@ -97,7 +97,7 @@ func runAdd(cmd *cobra.Command, role workflow.Role, address string, options addC
 			return err
 		}
 		defer client.Close()
-		if err := requireRemotePreflight(ctx, client, *configuration); err != nil {
+		if err := requireRemoteInstallPreflight(ctx, client, *configuration); err != nil {
 			return err
 		}
 		// 恢复执行时节点可能已经完成 join，Kubernetes 端口被占用属于正常状态。

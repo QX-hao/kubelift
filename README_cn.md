@@ -69,6 +69,8 @@ kubelift check ssh 192.168.121.153 -f /etc/kubelift/cluster.yaml
 
 SSH 检查使用配置中的私钥和同目录下的 `known_hosts`，只启用公钥认证，不会提示输入密码；连接成功后还会只读检查远程主机名、架构、Ubuntu 版本、CPU、内存、磁盘空间、systemd、swap 以及 Bundle 兼容性。首次连接前，请先用相同私钥手动连接并确认远程主机指纹。
 
+`check ssh` 只读，不会修改远程机器。如果执行 `create`、`add node`、`add master` 或 `bundle prepare`，KubeLift 会在安装准备阶段通过 SSH 关闭当前 swap，并注释 `/etc/fstab` 中匹配的 swap 配置；原文件会备份为 `/etc/fstab.kubelift.bak`。
+
 查看创建和扩容计划：
 
 ```bash
