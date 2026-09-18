@@ -84,8 +84,9 @@ install Cilium.`,
 		}
 		_, err = fmt.Fprintf(
 			cmd.OutOrStdout(),
-			"Uploaded %d payloads and prepared %s: %d binaries, %d runtime archive, %d configs, %d systemd units\n",
-			len(report.Files), address, preparation.BinaryCount, preparation.RuntimeCount, preparation.ConfigCount, preparation.UnitCount,
+			"Uploaded %d payloads and prepared %s: %d binaries, %d host tools, %d host libraries, %d runtime archive, %d configs, %d systemd units\n",
+			len(report.Files), address, preparation.BinaryCount, preparation.HostToolCount, preparation.HostLibraryCount,
+			preparation.RuntimeCount, preparation.ConfigCount, preparation.UnitCount,
 		)
 		return err
 	},

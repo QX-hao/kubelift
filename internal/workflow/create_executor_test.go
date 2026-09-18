@@ -19,11 +19,15 @@ import (
 type createRunner struct {
 	commands        []string
 	adminKubeconfig string
+	failPreflight   bool
 }
 
 func (r *createRunner) Run(_ context.Context, command string) (remote.CommandResult, error) {
 	r.commands = append(r.commands, command)
-	if strings.HasPrefix(command, "/usr/bin/kubeadm init") {
+	if strings.HasPrefix(command, "/usr/bin/kubeadm init phase preflight") && r.failPreflight {
+		return remote.CommandResult{Stderr: "missing host dependency"}, fmt.Errorf("preflight failed")
+	}
+	if strings.HasPrefix(command, "/usr/bin/kubeadm init --config") {
 		if err := os.MkdirAll(filepath.Dir(r.adminKubeconfig), 0o700); err != nil {
 			return remote.CommandResult{}, err
 		}
@@ -33,6 +37,39 @@ func (r *createRunner) Run(_ context.Context, command string) (remote.CommandRes
 		return remote.CommandResult{Stdout: "control plane initialized\n"}, nil
 	}
 	return remote.CommandResult{}, nil
+}
+
+func TestCreateExecutorCanResumeAfterKubeadmPreflightFailure(t *testing.T) {
+	configuration := createTestConfig(t)
+	root := t.TempDir()
+	adminKubeconfig := filepath.Join(root, "kubernetes", "admin.conf")
+	runner := &createRunner{adminKubeconfig: adminKubeconfig, failPreflight: true}
+	executor := CreateExecutor{
+		Runner: runner, Transport: distribute.LocalTransport{},
+		StagingRoot: filepath.Join(root, "staging"), KubeadmConfig: filepath.Join(root, "kubernetes", "init.yaml"),
+		CiliumManifest:   filepath.Join(root, "kubernetes", "cilium.yaml"),
+		RegistryManifest: filepath.Join(root, "kubernetes", "manifests", "registry.yaml"),
+		RegistryStorage:  filepath.Join(root, "registry"), AdminKubeconfig: adminKubeconfig,
+		StateRoot: filepath.Join(root, "state"), EffectiveUserID: func() int { return 0 },
+	}
+
+	_, err := executor.ExecuteCreate(context.Background(), configuration, CreateOptions{})
+	if err == nil || !strings.Contains(err.Error(), "missing host dependency") {
+		t.Fatalf("ExecuteCreate() error = %v, want preflight error", err)
+	}
+	state, err := loadCreateState(createStatePath(executor.StateRoot, configuration.Metadata.Name))
+	if err != nil {
+		t.Fatalf("loadCreateState() error = %v", err)
+	}
+	if state.Phase != PhaseImagesImported {
+		t.Fatalf("state phase = %q, want %q", state.Phase, PhaseImagesImported)
+	}
+
+	runner.failPreflight = false
+	result, err := executor.ExecuteCreate(context.Background(), configuration, CreateOptions{Resume: true})
+	if err != nil || result.Phase != PhaseComplete {
+		t.Fatalf("resumed create result = %+v, error = %v", result, err)
+	}
 }
 
 func TestCreateExecutorStagesPreparesImportsAndInitializes(t *testing.T) {
@@ -57,7 +94,7 @@ func TestCreateExecutorStagesPreparesImportsAndInitializes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExecuteCreate() error = %v", err)
 	}
-	if result.PayloadCount != 13 || result.Images.KubernetesCount != 1 || result.Images.CiliumCount != 1 || result.Images.RegistryCount != 1 || !result.RegistryReady {
+	if result.PayloadCount != 17 || result.Images.KubernetesCount != 1 || result.Images.CiliumCount != 1 || result.Images.RegistryCount != 1 || !result.RegistryReady {
 		t.Fatalf("create result = %+v", result)
 	}
 	if result.KubeadmOutput != "control plane initialized" {
@@ -75,8 +112,8 @@ func TestCreateExecutorStagesPreparesImportsAndInitializes(t *testing.T) {
 	if err != nil || !resumed.AlreadyComplete || len(runner.commands) != commandCount {
 		t.Fatalf("completed resume = %+v, error = %v, commands = %v", resumed, err, runner.commands)
 	}
-	if len(runner.commands) != 10 {
-		t.Fatalf("command count = %d, want 10: %v", len(runner.commands), runner.commands)
+	if len(runner.commands) != 11 {
+		t.Fatalf("command count = %d, want 11: %v", len(runner.commands), runner.commands)
 	}
 	if !strings.Contains(runner.commands[0], "systemctl restart containerd.service") {
 		t.Fatalf("first command does not prepare node: %s", runner.commands[0])
@@ -84,14 +121,17 @@ func TestCreateExecutorStagesPreparesImportsAndInitializes(t *testing.T) {
 	if !strings.Contains(runner.commands[1], "ctr -n k8s.io images import") {
 		t.Fatalf("second command does not import images: %s", runner.commands[1])
 	}
-	if runner.commands[2] != "/usr/bin/kubeadm init --ignore-preflight-errors=FileExisting-conntrack --config '"+executor.KubeadmConfig+"'" {
+	if runner.commands[2] != "/usr/bin/kubeadm init phase preflight --config '"+executor.KubeadmConfig+"'" {
 		t.Fatalf("third command = %q", runner.commands[2])
 	}
-	if !strings.Contains(runner.commands[3], "get --raw=/readyz") || !strings.Contains(runner.commands[8], "deployment/coredns") {
-		t.Fatalf("Cilium health commands = %v", runner.commands[3:])
+	if runner.commands[3] != "/usr/bin/kubeadm init --config '"+executor.KubeadmConfig+"'" {
+		t.Fatalf("fourth command = %q", runner.commands[3])
 	}
-	if !strings.Contains(runner.commands[9], "app.kubernetes.io/name=kubelift-registry") {
-		t.Fatalf("Registry health command = %s", runner.commands[9])
+	if !strings.Contains(runner.commands[4], "get --raw=/readyz") || !strings.Contains(runner.commands[9], "deployment/coredns") {
+		t.Fatalf("Cilium health commands = %v", runner.commands[4:])
+	}
+	if !strings.Contains(runner.commands[10], "app.kubernetes.io/name=kubelift-registry") {
+		t.Fatalf("Registry health command = %s", runner.commands[10])
 	}
 	if _, err := os.Stat(filepath.Join(executor.StagingRoot, "production", "bin", "kubeadm")); err != nil {
 		t.Fatalf("stat staged kubeadm: %v", err)
@@ -209,8 +249,8 @@ func TestCreateExecutorSkipsRegistryWhenDisabled(t *testing.T) {
 	if result.Images.RegistryCount != 0 || result.RegistryReady {
 		t.Fatalf("Registry was enabled unexpectedly: %+v", result)
 	}
-	if len(runner.commands) != 9 {
-		t.Fatalf("command count = %d, want 9 without Registry", len(runner.commands))
+	if len(runner.commands) != 10 {
+		t.Fatalf("command count = %d, want 10 without Registry", len(runner.commands))
 	}
 	for _, command := range runner.commands {
 		if strings.Contains(command, "registry.tar") || strings.Contains(command, "kubelift-registry") {
@@ -287,6 +327,10 @@ func createTestBundle(t *testing.T) string {
 		{path: "images/registry.tar", kind: "image", role: "registry-image"},
 		{path: "manifests/cilium.yaml.tmpl", kind: "manifest", role: "cilium-manifest"},
 		{path: "manifests/registry.yaml.tmpl", kind: "manifest", role: "registry-manifest"},
+		{path: "system/bin/iptables", kind: "system", role: "host-tool"},
+		{path: "system/bin/ethtool", kind: "system", role: "host-tool"},
+		{path: "system/bin/conntrack", kind: "system", role: "host-tool"},
+		{path: "system/lib/libmnl.so.0", kind: "system", role: "host-library"},
 	}
 	source := t.TempDir()
 	files := make([]bundle.File, 0, len(payloads))

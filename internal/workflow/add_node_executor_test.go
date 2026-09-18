@@ -81,7 +81,7 @@ func TestAddNodeExecutorPreparesAndJoinsWorker(t *testing.T) {
 	}
 	foundJoin := false
 	for _, command := range worker.commands {
-		if strings.Contains(command, "/usr/bin/kubeadm join --ignore-preflight-errors=FileExisting-conntrack --config") && strings.Contains(command, "trap \"rm -f") {
+		if strings.Contains(command, "/usr/bin/kubeadm join --config") && strings.Contains(command, "trap \"rm -f") {
 			foundJoin = true
 		}
 		if strings.Contains(command, "registry.tar") {

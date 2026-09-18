@@ -16,6 +16,8 @@ func TestWriteManifestScansAndHashesPayloads(t *testing.T) {
 	writePayload(t, source, "cri/containerd.tar.gz", "runtime")
 	writePayload(t, source, "etc/containerd/config.toml", "config")
 	writePayload(t, source, "scripts/init.sh", "script")
+	writePayload(t, source, "system/bin/iptables", "host-tool")
+	writePayload(t, source, "system/lib/libmnl.so.0", "host-library")
 
 	path, err := WriteManifest(source, validManifestOptions())
 	if err != nil {
@@ -32,8 +34,8 @@ func TestWriteManifestScansAndHashesPayloads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseManifest() error = %v", err)
 	}
-	if len(manifest.Spec.Files) != 5 {
-		t.Fatalf("file count = %d, want 5", len(manifest.Spec.Files))
+	if len(manifest.Spec.Files) != 7 {
+		t.Fatalf("file count = %d, want 7", len(manifest.Spec.Files))
 	}
 	if manifest.Spec.Files[0].Path != "bin/kubectl" || manifest.Spec.Files[0].Kind != "binary" {
 		t.Fatalf("first file = %+v", manifest.Spec.Files[0])
@@ -44,6 +46,11 @@ func TestWriteManifestScansAndHashesPayloads(t *testing.T) {
 		"etc/containerd/config.toml": "config",
 		"images/kubernetes.tar":      "image",
 		"scripts/init.sh":            "script",
+		"system/bin/iptables":        "system",
+		"system/lib/libmnl.so.0":     "system",
+	}
+	if len(manifest.FilesForRole("host-tool")) != 1 || len(manifest.FilesForRole("host-library")) != 1 {
+		t.Fatalf("host payload roles = %+v", manifest.Spec.Files)
 	}
 	for _, file := range manifest.Spec.Files {
 		if want := wantKinds[file.Path]; file.Kind != want {
@@ -97,6 +104,9 @@ func TestWriteManifestInfersConventionalArtifactRoles(t *testing.T) {
 	source := t.TempDir()
 	writePayload(t, source, "bin/kubeadm", "binary")
 	writePayload(t, source, "images/kubernetes.tar", "image")
+	writePayload(t, source, "images/coredns.tar", "coredns")
+	writePayload(t, source, "images/cilium-operator.tar", "cilium-operator")
+	writePayload(t, source, "images/registry-cache.tar", "registry")
 
 	_, err := WriteManifest(source, validManifestOptions())
 	if err != nil {
@@ -110,7 +120,8 @@ func TestWriteManifestInfersConventionalArtifactRoles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseManifest() error = %v", err)
 	}
-	if len(manifest.FilesForRole("kubeadm")) != 1 || len(manifest.FilesForRole("kubernetes-image")) != 1 {
+	if len(manifest.FilesForRole("kubeadm")) != 1 || len(manifest.FilesForRole("kubernetes-image")) != 2 ||
+		len(manifest.FilesForRole("cilium-image")) != 1 || len(manifest.FilesForRole("registry-image")) != 1 {
 		t.Fatalf("inferred roles = %+v", manifest.Spec.Files)
 	}
 }

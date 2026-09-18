@@ -189,15 +189,37 @@ func writeBundle(t *testing.T, kubernetesVersion, architecture string, ubuntuVer
 	t.Helper()
 
 	source := t.TempDir()
-	payload := []byte("container image data")
-	payloadPath := filepath.Join(source, "images", "kubernetes.tar")
-	if err := os.MkdirAll(filepath.Dir(payloadPath), 0o755); err != nil {
-		t.Fatalf("create payload directory: %v", err)
+	payloads := []struct{ path, kind, role string }{
+		{"bin/kubeadm", "binary", "kubeadm"},
+		{"bin/kubelet", "binary", "kubelet"},
+		{"bin/kubectl", "binary", "kubectl"},
+		{"cri/containerd.tar.gz", "runtime", "containerd"},
+		{"etc/containerd/config.toml", "config", "containerd-config"},
+		{"etc/systemd/containerd.service", "config", "systemd-unit"},
+		{"etc/systemd/kubelet.service", "config", "systemd-unit"},
+		{"images/kubernetes.tar", "image", "kubernetes-image"},
+		{"images/cilium.tar", "image", "cilium-image"},
+		{"images/registry.tar", "image", "registry-image"},
+		{"manifests/cilium.yaml.tmpl", "manifest", "cilium-manifest"},
+		{"manifests/registry.yaml.tmpl", "manifest", "registry-manifest"},
+		{"system/bin/iptables", "system", "host-tool"},
+		{"system/bin/ethtool", "system", "host-tool"},
+		{"system/bin/conntrack", "system", "host-tool"},
+		{"system/lib/libmnl.so.0", "system", "host-library"},
 	}
-	if err := os.WriteFile(payloadPath, payload, 0o600); err != nil {
-		t.Fatalf("write payload: %v", err)
+	files := make([]bundle.File, 0, len(payloads))
+	for _, item := range payloads {
+		payload := []byte(item.path)
+		payloadPath := filepath.Join(source, filepath.FromSlash(item.path))
+		if err := os.MkdirAll(filepath.Dir(payloadPath), 0o755); err != nil {
+			t.Fatalf("create payload directory: %v", err)
+		}
+		if err := os.WriteFile(payloadPath, payload, 0o600); err != nil {
+			t.Fatalf("write payload: %v", err)
+		}
+		hash := sha256.Sum256(payload)
+		files = append(files, bundle.File{Path: item.path, Kind: item.kind, Role: item.role, Size: int64(len(payload)), SHA256: fmt.Sprintf("%x", hash)})
 	}
-	hash := sha256.Sum256(payload)
 	manifest := bundle.Manifest{
 		APIVersion: bundle.APIVersion,
 		Kind:       bundle.Kind,
@@ -211,12 +233,7 @@ func writeBundle(t *testing.T, kubernetesVersion, architecture string, ubuntuVer
 				"cilium":     "v1.14.0",
 				"registry":   "v2.8.0",
 			},
-			Files: []bundle.File{{
-				Path:   "images/kubernetes.tar",
-				Kind:   "image",
-				Size:   int64(len(payload)),
-				SHA256: fmt.Sprintf("%x", hash),
-			}},
+			Files: files,
 		},
 	}
 	manifestData, err := yaml.Marshal(manifest)

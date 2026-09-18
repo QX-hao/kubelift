@@ -128,7 +128,7 @@ kubelift --version
 
 离线包使用 `tar.zst` 格式，根目录必须包含 `manifest.yaml`。清单声明 Kubernetes 版本、CPU 架构、兼容的 Ubuntu 版本、组件版本，以及每个载荷文件的大小和 SHA-256。生成结果示例见 `examples/bundle-manifest.yaml`。
 
-准备源目录时，只能使用下面六类载荷目录：
+准备源目录时，只能使用下面七类载荷目录：
 
 ```text
 bundle-source/
@@ -138,7 +138,10 @@ bundle-source/
 ├── etc/          # containerd、kubelet 和 systemd 配置
 ├── images/       # 可由 containerd 导入的镜像归档
 ├── manifests/    # 安装所需的 Kubernetes 清单
-└── scripts/      # 节点初始化脚本
+├── scripts/      # 节点初始化脚本
+└── system/       # 宿主机工具及其动态库
+    ├── bin/
+    └── lib/
 ```
 
 准备好载荷后，由 CLI 扫描目录并生成 `manifest.yaml`。命令不会覆盖已有清单：
@@ -165,7 +168,7 @@ k8s-service-port: "{{ .APIServerPort }}"
 
 当 `registry.enabled: true` 时，Registry 模板必须包含 `{{ .RegistryPort }}` 和 `{{ .RegistryStoragePath }}`，并且只能生成一个 `kube-system/kubelift-registry` 静态 Pod。该 Pod 必须使用 `hostNetwork`、`hostPath`、`app.kubernetes.io/name=kubelift-registry` 标签以及 `imagePullPolicy: Never`。
 
-`--artifact-role` 可以重复使用，格式是 `载荷相对路径=角色`。支持的角色包括 `kubeadm`、`kubelet`、`kubectl`、`containerd`、`runc`、`systemd-unit`、`containerd-config`、`kubelet-config`、`init-script`、`cni-plugin`、`cri-tool`、`kubernetes-image`、`cilium-image`、`registry-image`、`cilium-manifest` 和 `registry-manifest`。约定路径会自动标注；非标准路径仍需显式指定。角色允许为空以容纳非安装载荷，但 `bundle inspect --config` 会拒绝缺少安装角色的 Bundle。
+`--artifact-role` 可以重复使用，格式是 `载荷相对路径=角色`。支持的角色包括 `kubeadm`、`kubelet`、`kubectl`、`containerd`、`runc`、`systemd-unit`、`containerd-config`、`kubelet-config`、`init-script`、`cni-plugin`、`cri-tool`、`host-tool`、`host-library`、`kubernetes-image`、`cilium-image`、`registry-image`、`cilium-manifest` 和 `registry-manifest`。`system/bin/` 和 `system/lib/` 下的文件会自动标注为宿主机工具及动态库；非标准路径仍需显式指定。角色允许为空以容纳非安装载荷，但 `bundle inspect --config` 会拒绝缺少安装角色的 Bundle。
 
 生成清单后创建并立即复验离线包：
 
@@ -195,7 +198,7 @@ kubelift bundle push 192.168.121.153
 kubelift bundle prepare 192.168.121.152
 ```
 
-该命令会上传并校验 Bundle，然后将 `kubeadm`、`kubelet`、`kubectl` 等裸二进制复制到 `/usr/bin`，加载所需内核模块并设置 Kubernetes 网络 sysctl，解压 containerd runtime，安装 containerd 和 kubelet 的 systemd 配置，并启用/重启 containerd。它暂不执行 `kubeadm`、导入镜像或安装 Cilium。
+该命令会上传并校验 Bundle，然后将 `kubeadm`、`kubelet`、`kubectl` 等裸二进制以及 `iptables`、`ethtool`、`conntrack` 和所需动态库安装到宿主机，加载所需内核模块并设置 Kubernetes 网络 sysctl，解压 containerd runtime，安装 containerd 和 kubelet 的 systemd 配置，并启用/重启 containerd。它暂不执行 `kubeadm`、导入镜像或安装 Cilium。
 
 将 Kubernetes、Cilium 和可选 Registry 镜像归档导入远程节点的 containerd：
 
@@ -218,7 +221,7 @@ kubelift bundle inspect ./kubernetes-v1.28.15-amd64.tar.zst \
   --config /etc/kubelift/cluster.yaml
 ```
 
-该检查会验证必需的二进制、systemd unit、镜像归档、Cilium 模板、Kubernetes 版本，以及启用 Registry 时所需的 Registry 载荷。
+该检查会验证必需的二进制、`iptables`、`ethtool`、`conntrack` 及其动态库、systemd unit、镜像归档、Cilium 模板、Kubernetes 版本，以及启用 Registry 时所需的 Registry 载荷。
 
 任何远程上传开始前，KubeLift 都会把目标节点的 `uname -m` 和 Ubuntu `VERSION_ID` 与 Bundle 清单比较。一个 Bundle 只对应一种架构（`amd64` 或 `arm64`），但可以声明多个受支持的 Ubuntu 版本；Master0 和所有新增节点都必须与清单匹配。
 

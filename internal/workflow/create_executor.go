@@ -255,12 +255,16 @@ func (e CreateExecutor) ExecuteCreate(ctx context.Context, configuration config.
 				return CreateResult{}, err
 			}
 		} else {
+			preflightCommand := "/usr/bin/kubeadm init phase preflight --config " + quoteShell(e.KubeadmConfig)
+			preflightResult, preflightErr := e.Runner.Run(ctx, preflightCommand)
+			if preflightErr != nil {
+				return CreateResult{}, commandError("run kubeadm preflight", preflightResult, preflightErr)
+			}
 			if err := saveCreateState(statePath, state, PhaseKubeadmStarting); err != nil {
 				return CreateResult{}, err
 			}
 			state.Phase = PhaseKubeadmStarting
-			// 首版固定由 Cilium 完全替代 kube-proxy，因此不要求主机安装 conntrack CLI。
-			command := "/usr/bin/kubeadm init --ignore-preflight-errors=FileExisting-conntrack --config " + quoteShell(e.KubeadmConfig)
+			command := "/usr/bin/kubeadm init --config " + quoteShell(e.KubeadmConfig)
 			commandResult, err = e.Runner.Run(ctx, command)
 			if err != nil {
 				if stderr := strings.TrimSpace(commandResult.Stderr); stderr != "" {

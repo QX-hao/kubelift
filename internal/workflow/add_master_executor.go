@@ -178,7 +178,7 @@ func (e AddMasterExecutor) Execute(ctx context.Context, configuration config.Con
 			}
 			state.Phase = AddPhaseJoinStarting
 			joinConfigPath := quoteShell(e.RemoteJoinConfig)
-			joinResult, err = e.Remote.Run(ctx, "trap \"rm -f -- "+joinConfigPath+"\" EXIT; /usr/bin/kubeadm join --ignore-preflight-errors=FileExisting-conntrack --config "+joinConfigPath)
+			joinResult, err = e.Remote.Run(ctx, "trap \"rm -f -- "+joinConfigPath+"\" EXIT; /usr/bin/kubeadm join --config "+joinConfigPath)
 			if err != nil {
 				return AddMasterResult{}, commandError("join control-plane node", joinResult, err)
 			}

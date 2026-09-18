@@ -119,6 +119,19 @@ func applyConventionalArtifactRoles(files []File) {
 	for index := range files {
 		if role, exists := conventionalArtifactRoles[files[index].Path]; exists {
 			files[index].Role = role
+			continue
+		}
+		switch {
+		case strings.HasPrefix(files[index].Path, "system/bin/"):
+			files[index].Role = "host-tool"
+		case strings.HasPrefix(files[index].Path, "system/lib/"):
+			files[index].Role = "host-library"
+		case strings.HasPrefix(files[index].Path, "images/cilium") && strings.HasSuffix(files[index].Path, ".tar"):
+			files[index].Role = "cilium-image"
+		case strings.HasPrefix(files[index].Path, "images/registry") && strings.HasSuffix(files[index].Path, ".tar"):
+			files[index].Role = "registry-image"
+		case strings.HasPrefix(files[index].Path, "images/") && strings.HasSuffix(files[index].Path, ".tar"):
+			files[index].Role = "kubernetes-image"
 		}
 	}
 }

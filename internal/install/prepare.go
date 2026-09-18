@@ -35,10 +35,12 @@ type CommandRunner interface {
 
 // Report 描述一次节点准备执行的载荷数量。
 type Report struct {
-	BinaryCount  int
-	RuntimeCount int
-	ConfigCount  int
-	UnitCount    int
+	BinaryCount      int
+	RuntimeCount     int
+	ConfigCount      int
+	UnitCount        int
+	HostToolCount    int
+	HostLibraryCount int
 }
 
 // PrepareNode 使用 Sealos 风格的 Bundle 载荷准备一个 Ubuntu 节点。
@@ -70,6 +72,51 @@ func PrepareNode(ctx context.Context, runner CommandRunner, remoteRoot string, m
 		"sysctl --system",
 	)
 	report := Report{}
+
+	libraryDirectory := "/usr/lib/x86_64-linux-gnu"
+	if manifest.Spec.Architecture == "arm64" {
+		libraryDirectory = "/usr/lib/aarch64-linux-gnu"
+	}
+	steps = append(steps, "install -d -m 0755 -- "+shellQuote(libraryDirectory))
+	hostLibraries := append([]bundle.File(nil), manifest.FilesForRole("host-library")...)
+	sort.Slice(hostLibraries, func(left, right int) bool { return hostLibraries[left].Path < hostLibraries[right].Path })
+	seenLibraries := make(map[string]struct{}, len(hostLibraries))
+	for _, file := range hostLibraries {
+		name := filepath.Base(filepath.FromSlash(file.Path))
+		if _, exists := seenLibraries[name]; exists {
+			return Report{}, fmt.Errorf("offline bundle contains duplicate host library %q", name)
+		}
+		seenLibraries[name] = struct{}{}
+		remotePath, err := remotePayloadPath(remoteRoot, file.Path)
+		if err != nil {
+			return Report{}, err
+		}
+		steps = append(steps, "install -m 0644 -- "+shellQuote(remotePath)+" "+shellQuote(filepath.Join(libraryDirectory, name)))
+		report.HostLibraryCount++
+	}
+
+	hostTools := append([]bundle.File(nil), manifest.FilesForRole("host-tool")...)
+	sort.Slice(hostTools, func(left, right int) bool { return hostTools[left].Path < hostTools[right].Path })
+	seenTools := make(map[string]struct{}, len(hostTools))
+	for _, file := range hostTools {
+		name := filepath.Base(filepath.FromSlash(file.Path))
+		if _, exists := seenTools[name]; exists {
+			return Report{}, fmt.Errorf("offline bundle contains duplicate host tool %q", name)
+		}
+		seenTools[name] = struct{}{}
+		remotePath, err := remotePayloadPath(remoteRoot, file.Path)
+		if err != nil {
+			return Report{}, err
+		}
+		steps = append(steps, "install -m 0755 -- "+shellQuote(remotePath)+" "+shellQuote("/usr/bin/"+name))
+		report.HostToolCount++
+	}
+	steps = append(steps,
+		"ldconfig",
+		"if ldd /usr/bin/iptables /usr/bin/ethtool /usr/bin/conntrack | grep -q 'not found'; then echo 'host tool shared library is missing' >&2; exit 1; fi",
+		"/usr/bin/ethtool --version",
+		"/usr/bin/conntrack --version",
+	)
 
 	for _, role := range []string{"kubeadm", "kubelet", "kubectl", "runc"} {
 		files := manifest.FilesForRole(role)

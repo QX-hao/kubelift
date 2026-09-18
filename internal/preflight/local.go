@@ -244,6 +244,10 @@ func (c localChecker) checkOfflineBundle(configuration config.Config) Result {
 		result.Err = fmt.Errorf("bundle architecture is %s, current host is %s", manifest.Spec.Architecture, c.architecture)
 		return result
 	}
+	if err := bundle.ValidateClusterProfile(manifest, configuration.Spec.Registry.Enabled); err != nil {
+		result.Err = fmt.Errorf("bundle cluster profile is incomplete: %w", err)
+		return result
+	}
 
 	// 操作系统检查已经负责报告读取错误；这里只在能够识别 Ubuntu 时校验兼容列表。
 	if values, err := readOSRelease(c.osReleasePath); err == nil && values["ID"] == "ubuntu" {

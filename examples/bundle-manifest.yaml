@@ -14,13 +14,24 @@ spec:
     - "26.04"
 
   components:
-    containerd: v1.7.0
-    cilium: v1.14.0
-    registry: v2.8.0
+    containerd: v1.7.27
+    cilium: v1.14.19
+    registry: v2.8.3
 
   # files 由 kubelift bundle manifest 生成；下面的值仅用于展示字段结构。
   files:
-    - path: images/kubernetes-v1.28.15.tar
+    - path: images/kubernetes.tar
       kind: image
+      role: kubernetes-image
       size: 123456789
+      sha256: 0000000000000000000000000000000000000000000000000000000000000000
+    - path: system/bin/iptables
+      kind: system
+      role: host-tool
+      size: 123456
+      sha256: 0000000000000000000000000000000000000000000000000000000000000000
+    - path: system/lib/libmnl.so.0
+      kind: system
+      role: host-library
+      size: 12345
       sha256: 0000000000000000000000000000000000000000000000000000000000000000

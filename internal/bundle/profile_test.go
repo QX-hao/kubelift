@@ -50,6 +50,10 @@ func profileManifest() Manifest {
 		{"images/registry.tar", "image", "registry-image"},
 		{"manifests/cilium.yaml.tmpl", "manifest", "cilium-manifest"},
 		{"manifests/registry.yaml.tmpl", "manifest", "registry-manifest"},
+		{"system/bin/iptables", "system", "host-tool"},
+		{"system/bin/ethtool", "system", "host-tool"},
+		{"system/bin/conntrack", "system", "host-tool"},
+		{"system/lib/libmnl.so.0", "system", "host-library"},
 	}
 	files := make([]File, 0, len(roles))
 	for _, item := range roles {

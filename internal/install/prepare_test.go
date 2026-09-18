@@ -26,7 +26,7 @@ func TestPrepareNodeBuildsBinaryRuntimeAndSystemdCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PrepareNode() error = %v", err)
 	}
-	if report.BinaryCount != 5 || report.RuntimeCount != 1 || report.ConfigCount != 1 || report.UnitCount != 2 {
+	if report.BinaryCount != 5 || report.RuntimeCount != 1 || report.ConfigCount != 1 || report.UnitCount != 2 || report.HostToolCount != 3 || report.HostLibraryCount != 5 {
 		t.Fatalf("preparation report = %+v", report)
 	}
 	for _, expected := range []string{
@@ -34,6 +34,10 @@ func TestPrepareNodeBuildsBinaryRuntimeAndSystemdCommand(t *testing.T) {
 		"swapoff -a",
 		"/etc/fstab.kubelift.bak",
 		"swap is still enabled after preparation",
+		"install -m 0755 -- '/var/lib/kubelift/staging/production/system/bin/iptables' '/usr/bin/iptables'",
+		"install -m 0644 -- '/var/lib/kubelift/staging/production/system/lib/libmnl.so.0' '/usr/lib/x86_64-linux-gnu/libmnl.so.0'",
+		"ldconfig && if ldd /usr/bin/iptables /usr/bin/ethtool /usr/bin/conntrack | grep -q 'not found'",
+		"/usr/bin/ethtool --version && /usr/bin/conntrack --version",
 		"modprobe overlay",
 		"modprobe br_netfilter",
 		"net.ipv4.ip_forward = 1",
@@ -95,6 +99,14 @@ func preparationManifest() bundle.Manifest {
 		{Path: "etc/containerd/config.toml", Kind: "config", Role: "containerd-config"},
 		{Path: "etc/systemd/containerd.service", Kind: "config", Role: "systemd-unit"},
 		{Path: "etc/systemd/kubelet.service", Kind: "config", Role: "systemd-unit"},
+		{Path: "system/bin/iptables", Kind: "system", Role: "host-tool"},
+		{Path: "system/bin/ethtool", Kind: "system", Role: "host-tool"},
+		{Path: "system/bin/conntrack", Kind: "system", Role: "host-tool"},
+		{Path: "system/lib/libmnl.so.0", Kind: "system", Role: "host-library"},
+		{Path: "system/lib/libnftnl.so.11", Kind: "system", Role: "host-library"},
+		{Path: "system/lib/libxtables.so.12", Kind: "system", Role: "host-library"},
+		{Path: "system/lib/libnetfilter_conntrack.so.3", Kind: "system", Role: "host-library"},
+		{Path: "system/lib/libnfnetlink.so.0", Kind: "system", Role: "host-library"},
 	}
 	for index := range files {
 		files[index].Size = 1

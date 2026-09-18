@@ -124,7 +124,10 @@ bundle-source/
 ├── etc/
 ├── images/
 ├── manifests/
-└── scripts/
+├── scripts/
+└── system/
+    ├── bin/
+    └── lib/
 ```
 
 Generate a manifest after placing payloads in the source directory:
@@ -177,8 +180,9 @@ kubelift bundle inspect ./kubernetes-v1.28.15-amd64.tar.zst \
 ```
 
 The second form also verifies the complete cluster installation profile,
-including required binaries, systemd units, image archives, Cilium template,
-Kubernetes version, and optional Registry payloads.
+including required binaries, host tools (`iptables`, `ethtool`, and
+`conntrack`), their shared libraries, systemd units, image archives, Cilium
+template, Kubernetes version, and optional Registry payloads.
 
 The bundle manifest records the Kubernetes version, supported Ubuntu versions, architecture, component versions, payload sizes, roles, and SHA-256 checksums. The archive uses `tar.zst` only as a transport format; it is not an official Kubernetes archive format.
 
@@ -211,10 +215,11 @@ kubelift bundle prepare 192.168.121.152
 ```
 
 This installs the required `kubeadm`, `kubelet`, and `kubectl` binaries,
-extracts the containerd runtime archive, installs the containerd and kubelet
-systemd units, loads the required kernel modules, applies Kubernetes networking
-sysctls, and enables/restarts containerd. It does not run `kubeadm`, import
-images, or install Cilium yet.
+installs the offline host tools and shared libraries, extracts the containerd
+runtime archive, installs the containerd and kubelet systemd units, loads the
+required kernel modules, applies Kubernetes networking sysctls, and
+enables/restarts containerd. It does not run `kubeadm`, import images, or
+install Cilium yet.
 
 Import the Kubernetes, Cilium, and optional Registry image archives into
 containerd on a remote node:
@@ -289,8 +294,8 @@ Detailed status is read-only and reports Nodes, Cilium, CoreDNS, and the
 host-network Registry when it is enabled in the cluster configuration.
 
 The v1.28 profile skips kube-proxy and uses Cilium as its full replacement.
-For that profile KubeLift ignores only kubeadm's `FileExisting-conntrack`
-preflight check; all other kubeadm preflight checks remain enforced.
+KubeLift still installs the host tools required by kubeadm and does not suppress
+their preflight checks.
 
 ## Development Status
 

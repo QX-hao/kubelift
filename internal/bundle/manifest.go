@@ -42,6 +42,7 @@ var supportedFileKinds = map[string]struct{}{
 	"manifest": {},
 	"runtime":  {},
 	"script":   {},
+	"system":   {},
 }
 
 var kindDirectory = map[string]string{
@@ -51,6 +52,7 @@ var kindDirectory = map[string]string{
 	"manifest": "manifests/",
 	"runtime":  "cri/",
 	"script":   "scripts/",
+	"system":   "system/",
 }
 
 var artifactRoleKinds = map[string]map[string]struct{}{
@@ -70,6 +72,8 @@ var artifactRoleKinds = map[string]map[string]struct{}{
 	"registry-image":    {"image": {}},
 	"cilium-manifest":   {"manifest": {}},
 	"registry-manifest": {"manifest": {}},
+	"host-tool":         {"system": {}},
+	"host-library":      {"system": {}},
 }
 
 type Manifest struct {
@@ -223,6 +227,12 @@ func validateFile(file File) error {
 		}
 		if _, allowed := allowedKinds[file.Kind]; !allowed {
 			return fmt.Errorf("role %q cannot be used with kind %q", file.Role, file.Kind)
+		}
+		if file.Role == "host-tool" && !strings.HasPrefix(file.Path, "system/bin/") {
+			return fmt.Errorf("role %q requires a path under system/bin", file.Role)
+		}
+		if file.Role == "host-library" && !strings.HasPrefix(file.Path, "system/lib/") {
+			return fmt.Errorf("role %q requires a path under system/lib", file.Role)
 		}
 	}
 	if file.Size <= 0 {

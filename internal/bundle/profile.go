@@ -21,6 +21,20 @@ func ValidateClusterProfile(manifest Manifest, registryEnabled bool) error {
 		}
 	}
 
+	tools := manifest.FilesForRole("host-tool")
+	toolNames := make(map[string]int, len(tools))
+	for _, file := range tools {
+		toolNames[filepath.Base(filepath.FromSlash(file.Path))]++
+	}
+	for _, name := range []string{"iptables", "ethtool", "conntrack"} {
+		if toolNames[name] != 1 {
+			return fmt.Errorf("cluster profile requires exactly one %q host tool, found %d", name, toolNames[name])
+		}
+	}
+	if len(manifest.FilesForRole("host-library")) == 0 {
+		return fmt.Errorf("cluster profile requires at least one %q payload", "host-library")
+	}
+
 	units := manifest.FilesForRole("systemd-unit")
 	unitNames := make(map[string]int, len(units))
 	for _, file := range units {
