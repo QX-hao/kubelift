@@ -40,6 +40,10 @@ spec:
       # 可选的 Docker Hub 镜像代理。启用后会生成 containerd hosts.toml。
       enabled: false
       # endpoint: https://docker.m.daocloud.io
+    # 可按镜像仓库分别配置代理，例如 ghcr.io。配置后会为每个仓库生成独立的 hosts.toml。
+    # mirrors:
+    #   docker.io: https://docker.m.daocloud.io
+    #   ghcr.io: https://ghcr.example.com
 
   ssh:
     user: root

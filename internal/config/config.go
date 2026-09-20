@@ -73,6 +73,7 @@ type RegistrySpec struct {
 	Enabled bool               `yaml:"enabled"`
 	Port    int                `yaml:"port"`
 	Mirror  RegistryMirrorSpec `yaml:"mirror"`
+	Mirrors map[string]string  `yaml:"mirrors"`
 }
 
 type RegistryMirrorSpec struct {
@@ -80,12 +81,25 @@ type RegistryMirrorSpec struct {
 	Endpoint string `yaml:"endpoint"`
 }
 
-// MirrorEndpoint returns the configured Docker Hub mirror only when it is enabled.
+// MirrorEndpoint returns the legacy Docker Hub mirror only when it is enabled.
 func (r RegistrySpec) MirrorEndpoint() string {
 	if !r.Mirror.Enabled {
 		return ""
 	}
 	return r.Mirror.Endpoint
+}
+
+// MirrorEndpoints returns all configured registry mirrors. The legacy mirror
+// field is translated to docker.io for backwards compatibility.
+func (r RegistrySpec) MirrorEndpoints() map[string]string {
+	mirrors := make(map[string]string, len(r.Mirrors)+1)
+	if endpoint := r.MirrorEndpoint(); endpoint != "" {
+		mirrors["docker.io"] = endpoint
+	}
+	for registry, endpoint := range r.Mirrors {
+		mirrors[strings.ToLower(strings.TrimSpace(registry))] = endpoint
+	}
+	return mirrors
 }
 
 type SSHSpec struct {
@@ -145,7 +159,7 @@ func (c Config) Validate() error {
 			return fmt.Errorf("spec.registry.port conflicts with a Kubernetes control-plane port")
 		}
 	}
-	if err := validateRegistryMirror(c.Spec.Registry.Mirror); err != nil {
+	if err := validateRegistryMirrors(c.Spec.Registry.Mirror, c.Spec.Registry.Mirrors); err != nil {
 		return fmt.Errorf("spec.registry.mirror: %w", err)
 	}
 	if strings.TrimSpace(c.Spec.SSH.User) == "" {
@@ -164,11 +178,38 @@ func (c Config) Validate() error {
 	return nil
 }
 
-func validateRegistryMirror(mirror RegistryMirrorSpec) error {
-	endpoint := strings.TrimSpace(mirror.Endpoint)
-	if mirror.Enabled && endpoint == "" {
+func validateRegistryMirrors(legacy RegistryMirrorSpec, mirrors map[string]string) error {
+	if err := validateRegistryMirrorEndpoint(legacy.Endpoint); err != nil {
+		return err
+	}
+	if legacy.Enabled && strings.TrimSpace(legacy.Endpoint) == "" {
 		return fmt.Errorf("endpoint is required when mirror is enabled")
 	}
+	seen := make(map[string]struct{}, len(mirrors)+1)
+	if legacy.Enabled {
+		seen["docker.io"] = struct{}{}
+	}
+	for registry, endpoint := range mirrors {
+		name := strings.ToLower(strings.TrimSpace(registry))
+		if err := validateRegistryName(name); err != nil {
+			return fmt.Errorf("mirror %q: %w", registry, err)
+		}
+		if _, exists := seen[name]; exists {
+			return fmt.Errorf("mirror %q is configured more than once", name)
+		}
+		if err := validateRegistryMirrorEndpoint(endpoint); err != nil {
+			return fmt.Errorf("mirror %q: %w", name, err)
+		}
+		if strings.TrimSpace(endpoint) == "" {
+			return fmt.Errorf("mirror %q endpoint is required", name)
+		}
+		seen[name] = struct{}{}
+	}
+	return nil
+}
+
+func validateRegistryMirrorEndpoint(endpoint string) error {
+	endpoint = strings.TrimSpace(endpoint)
 	if endpoint == "" {
 		return nil
 	}
@@ -181,6 +222,26 @@ func validateRegistryMirror(mirror RegistryMirrorSpec) error {
 	}
 	if strings.TrimSpace(u.Host) != u.Host {
 		return fmt.Errorf("endpoint must not contain whitespace")
+	}
+	return nil
+}
+
+func validateRegistryName(registry string) error {
+	if registry == "" || strings.ContainsAny(registry, "/\\ \t\r\n") {
+		return fmt.Errorf("registry name must be a hostname with an optional port")
+	}
+	parts := strings.Split(registry, ":")
+	if len(parts) > 2 || !validHostname(parts[0]) {
+		return fmt.Errorf("registry name must be a hostname with an optional port")
+	}
+	if len(parts) == 2 {
+		port, err := strconv.Atoi(parts[1])
+		if err != nil {
+			return fmt.Errorf("registry name contains an invalid port")
+		}
+		if err := validatePort(port); err != nil {
+			return fmt.Errorf("registry name: %w", err)
+		}
 	}
 	return nil
 }

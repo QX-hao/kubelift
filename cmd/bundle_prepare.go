@@ -79,7 +79,7 @@ install Cilium.`,
 			return err
 		}
 		preparation, err := install.PrepareNode(ctx, client, report.RemoteRoot, report.Manifest, install.PrepareOptions{
-			RegistryMirror: configuration.Spec.Registry.MirrorEndpoint(),
+			RegistryMirrors: configuration.Spec.Registry.MirrorEndpoints(),
 		})
 		if err != nil {
 			return err

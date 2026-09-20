@@ -122,7 +122,7 @@ func (e UninstallExecutor) ExecuteUninstall(ctx context.Context, configuration c
 		if err != nil {
 			return UninstallResult{}, fmt.Errorf("connect to %s (%s): %w", node.Name, node.Address, err)
 		}
-		cleanupResult, cleanupErr := client.Run(ctx, CleanupCommand(false))
+		cleanupResult, cleanupErr := client.Run(ctx, CleanupCommand(false, mirrorRegistryNames(configuration)))
 		closeErr := client.Close()
 		if cleanupErr != nil {
 			return UninstallResult{}, commandError("uninstall node "+node.Name, cleanupResult, cleanupErr)
@@ -135,7 +135,7 @@ func (e UninstallExecutor) ExecuteUninstall(ctx context.Context, configuration c
 		}
 	}
 
-	cleanupResult, cleanupErr := e.Runner.Run(ctx, CleanupCommand(options.PurgeConfig))
+	cleanupResult, cleanupErr := e.Runner.Run(ctx, CleanupCommand(options.PurgeConfig, mirrorRegistryNames(configuration)))
 	if cleanupErr != nil {
 		return UninstallResult{}, commandError("uninstall local control plane", cleanupResult, cleanupErr)
 	}
@@ -281,9 +281,19 @@ func deleteUninstallNode(ctx context.Context, runner install.CommandRunner, kube
 	return nil
 }
 
+func mirrorRegistryNames(configuration config.Config) []string {
+	mirrors := configuration.Spec.Registry.MirrorEndpoints()
+	registries := make([]string, 0, len(mirrors))
+	for registry := range mirrors {
+		registries = append(registries, registry)
+	}
+	sort.Strings(registries)
+	return registries
+}
+
 // CleanupCommand 返回在一个节点上执行的幂等清理脚本。
 // dpkg-query 检查用于避免删除 Ubuntu 软件包实际拥有的同名文件。
-func CleanupCommand(purgeConfig bool) string {
+func CleanupCommand(purgeConfig bool, mirrorRegistries ...[]string) string {
 	steps := []string{
 		"set -eu",
 		"if [ -x /usr/bin/kubeadm ] && { [ -e /etc/kubernetes/kubelet.conf ] || [ -e /etc/kubernetes/admin.conf ] || [ -d /etc/kubernetes/pki ]; }; then /usr/bin/kubeadm reset -f --cri-socket unix:///run/containerd/containerd.sock; fi",
@@ -294,8 +304,7 @@ func CleanupCommand(purgeConfig bool) string {
 		"rm -rf -- /etc/kubernetes /var/lib/kubelet /var/lib/etcd /var/lib/cni /var/lib/containerd /run/containerd /var/lib/kubelift",
 		"rm -rf -- /etc/cni/net.d",
 		"rm -f -- /opt/cni/bin/cilium-cni /opt/cni/bin/cilium-health /opt/cni/bin/cilium-dbg",
-		"rm -f -- /etc/containerd/config.toml /etc/containerd/certs.d/docker.io/hosts.toml",
-		"rmdir --ignore-fail-on-non-empty /etc/containerd/certs.d/docker.io /etc/containerd/certs.d /etc/containerd 2>/dev/null || true",
+		"rm -f -- /etc/containerd/config.toml",
 		"rm -f -- /etc/systemd/system/kubelet.service /etc/systemd/system/containerd.service /etc/modules-load.d/kubelift.conf /etc/sysctl.d/99-kubelift.conf",
 		"remove_if_unowned() { for path in \"$@\"; do if [ -e \"$path\" ] && ! dpkg-query -S \"$path\" >/dev/null 2>&1; then rm -f -- \"$path\"; fi; done; }",
 		"remove_if_unowned /usr/bin/kubeadm /usr/bin/kubelet /usr/bin/kubectl /usr/bin/crictl /usr/bin/conntrack /usr/bin/ethtool /usr/bin/iptables /usr/bin/iptables-legacy /usr/bin/iptables-nft /usr/bin/ip6tables /usr/bin/ip6tables-legacy /usr/bin/ip6tables-nft /usr/bin/runc /usr/bin/containerd /usr/bin/ctr /usr/bin/containerd-shim /usr/bin/containerd-shim-runc-v1 /usr/bin/containerd-shim-runc-v2",
@@ -305,5 +314,23 @@ func CleanupCommand(purgeConfig bool) string {
 	if purgeConfig {
 		steps = append(steps, "rm -rf -- /etc/kubelift")
 	}
+	registries := []string{"docker.io"}
+	if len(mirrorRegistries) > 0 && len(mirrorRegistries[0]) > 0 {
+		registries = mirrorRegistries[0]
+	}
+	for _, registry := range registries {
+		if err := validateCleanupRegistry(registry); err != nil {
+			continue
+		}
+		steps = append(steps, "rm -f -- "+quoteShell("/etc/containerd/certs.d/"+registry+"/hosts.toml"))
+	}
+	steps = append(steps, "find /etc/containerd/certs.d -mindepth 1 -maxdepth 1 -type d -empty -delete 2>/dev/null || true", "rmdir --ignore-fail-on-non-empty /etc/containerd/certs.d /etc/containerd 2>/dev/null || true")
 	return strings.Join(steps, " && ")
+}
+
+func validateCleanupRegistry(registry string) error {
+	if registry == "" || strings.ContainsAny(registry, "/\\ \t\r\n") {
+		return fmt.Errorf("invalid registry name")
+	}
+	return nil
 }

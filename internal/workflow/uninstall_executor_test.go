@@ -104,6 +104,11 @@ func TestCleanupCommandPreservesConfigUnlessPurged(t *testing.T) {
 	if !strings.Contains(CleanupCommand(true), "rm -rf -- /etc/kubelift") {
 		t.Fatal("purge cleanup must remove /etc/kubelift")
 	}
+	command = CleanupCommand(false, []string{"docker.io", "ghcr.io"})
+	if !strings.Contains(command, "/etc/containerd/certs.d/docker.io/hosts.toml") ||
+		!strings.Contains(command, "/etc/containerd/certs.d/ghcr.io/hosts.toml") {
+		t.Fatalf("cleanup must remove configured mirror hosts files: %s", command)
+	}
 }
 
 func TestCleanupCommandHasValidShellSyntax(t *testing.T) {

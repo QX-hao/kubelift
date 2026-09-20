@@ -74,7 +74,7 @@ func TestPrepareNodeRequiresCorePayloads(t *testing.T) {
 func TestPrepareNodeConfiguresDockerMirror(t *testing.T) {
 	runner := &fakeCommandRunner{}
 	_, err := PrepareNode(context.Background(), runner, "/var/lib/kubelift/staging/production", preparationManifest(), PrepareOptions{
-		RegistryMirror: "https://docker.m.daocloud.io/",
+		RegistryMirrors: map[string]string{"docker.io": "https://docker.m.daocloud.io/"},
 	})
 	if err != nil {
 		t.Fatalf("PrepareNode() error = %v", err)
@@ -86,6 +86,31 @@ func TestPrepareNodeConfiguresDockerMirror(t *testing.T) {
 	} {
 		if !strings.Contains(runner.command, expected) {
 			t.Errorf("mirror preparation command does not contain %q:\n%s", expected, runner.command)
+		}
+	}
+}
+
+func TestPrepareNodeConfiguresMultipleRegistryMirrors(t *testing.T) {
+	runner := &fakeCommandRunner{}
+	_, err := PrepareNode(context.Background(), runner, "/var/lib/kubelift/staging/production", preparationManifest(), PrepareOptions{
+		RegistryMirrors: map[string]string{
+			"docker.io": "https://docker.m.daocloud.io",
+			"ghcr.io":   "https://ghcr.example.com",
+		},
+	})
+	if err != nil {
+		t.Fatalf("PrepareNode() error = %v", err)
+	}
+	for _, expected := range []string{
+		"/etc/containerd/certs.d/docker.io/hosts.toml",
+		"/etc/containerd/certs.d/ghcr.io/hosts.toml",
+		`server = "https://registry-1.docker.io"`,
+		`server = "https://ghcr.io"`,
+		"https://docker.m.daocloud.io",
+		"https://ghcr.example.com",
+	} {
+		if !strings.Contains(runner.command, expected) {
+			t.Errorf("multi-registry preparation command does not contain %q:\n%s", expected, runner.command)
 		}
 	}
 }

@@ -93,6 +93,24 @@ func TestLoadRegistryMirror(t *testing.T) {
 	}
 }
 
+func TestLoadRegistryMirrors(t *testing.T) {
+	path := writeConfig(t, strings.Replace(
+		validYAML,
+		"    port: 5000",
+		"    port: 5000\n    mirrors:\n      docker.io: https://docker.m.daocloud.io\n      ghcr.io: https://ghcr.example.com",
+		1,
+	))
+
+	configuration, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	mirrors := configuration.Spec.Registry.MirrorEndpoints()
+	if mirrors["docker.io"] != "https://docker.m.daocloud.io" || mirrors["ghcr.io"] != "https://ghcr.example.com" {
+		t.Fatalf("registry mirrors = %#v", mirrors)
+	}
+}
+
 func TestLoadRejectsUnknownField(t *testing.T) {
 	path := writeConfig(t, strings.Replace(
 		validYAML,
@@ -198,6 +216,20 @@ func TestValidateRejectsInvalidConfiguration(t *testing.T) {
 				configuration.Spec.Registry.Mirror.Endpoint = "ftp://mirror.example.com"
 			},
 			want: "HTTP or HTTPS",
+		},
+		{
+			name: "registry mirror with invalid source name",
+			change: func(configuration *Config) {
+				configuration.Spec.Registry.Mirrors = map[string]string{"ghcr.io/path": "https://mirror.example.com"}
+			},
+			want: "hostname",
+		},
+		{
+			name: "registry mirror without endpoint",
+			change: func(configuration *Config) {
+				configuration.Spec.Registry.Mirrors = map[string]string{"ghcr.io": ""}
+			},
+			want: "endpoint is required",
 		},
 	}
 

@@ -22,6 +22,7 @@ import (
 	"net/url"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -47,8 +48,9 @@ type Report struct {
 
 // PrepareOptions 控制节点准备时的可选 containerd Registry 配置。
 type PrepareOptions struct {
-	// RegistryMirror 是 Docker Hub 的 HTTP(S) 镜像地址。为空时不修改 Registry mirror。
-	RegistryMirror string
+	// RegistryMirrors maps an OCI registry host (for example docker.io or
+	// ghcr.io) to an HTTP(S) pull-through mirror endpoint.
+	RegistryMirrors map[string]string
 }
 
 // PrepareNode 使用 Sealos 风格的 Bundle 载荷准备一个 Ubuntu 节点。
@@ -63,7 +65,7 @@ func PrepareNode(ctx context.Context, runner CommandRunner, remoteRoot string, m
 	if err := manifest.Validate(); err != nil {
 		return Report{}, fmt.Errorf("validate offline bundle manifest: %w", err)
 	}
-	mirrorEndpoint, err := normalizeRegistryMirror(options.RegistryMirror)
+	registryMirrors, err := normalizeRegistryMirrors(options.RegistryMirrors)
 	if err != nil {
 		return Report{}, err
 	}
@@ -187,14 +189,17 @@ func PrepareNode(ctx context.Context, runner CommandRunner, remoteRoot string, m
 	}
 	steps = append(steps, "install -m 0644 -- "+shellQuote(configPath)+" /etc/containerd/config.toml")
 	report.ConfigCount++
-	if mirrorEndpoint != "" {
-		hostsToml := dockerMirrorHostsToml(mirrorEndpoint)
+	if len(registryMirrors) > 0 {
 		registryConfig := "[plugins.\"io.containerd.grpc.v1.cri\".registry]\n  config_path = \"/etc/containerd/certs.d\"\n"
-		steps = append(steps,
-			"install -d -m 0755 -- /etc/containerd/certs.d/docker.io",
-			"printf '%s' "+shellQuote(hostsToml)+" > /etc/containerd/certs.d/docker.io/hosts.toml",
-			"if ! grep -Fq "+shellQuote(`config_path = "/etc/containerd/certs.d"`)+" /etc/containerd/config.toml; then printf '%s' "+shellQuote(registryConfig)+" >> /etc/containerd/config.toml; fi",
-		)
+		for _, mirror := range registryMirrors {
+			directory := "/etc/containerd/certs.d/" + mirror.Registry
+			hostsPath := directory + "/hosts.toml"
+			steps = append(steps,
+				"install -d -m 0755 -- "+shellQuote(directory),
+				"printf '%s' "+shellQuote(registryMirrorHostsToml(mirror.Registry, mirror.Endpoint))+" > "+shellQuote(hostsPath),
+			)
+		}
+		steps = append(steps, "if ! grep -Fq "+shellQuote(`config_path = "/etc/containerd/certs.d"`)+" /etc/containerd/config.toml; then printf '%s' "+shellQuote(registryConfig)+" >> /etc/containerd/config.toml; fi")
 	}
 
 	unitFiles := append([]bundle.File(nil), manifest.FilesForRole("systemd-unit")...)
@@ -239,23 +244,76 @@ func PrepareNode(ctx context.Context, runner CommandRunner, remoteRoot string, m
 	return report, nil
 }
 
-func normalizeRegistryMirror(endpoint string) (string, error) {
+type registryMirror struct {
+	Registry string
+	Endpoint string
+}
+
+func normalizeRegistryMirrors(mirrors map[string]string) ([]registryMirror, error) {
+	if len(mirrors) == 0 {
+		return nil, nil
+	}
+	result := make([]registryMirror, 0, len(mirrors))
+	seen := make(map[string]struct{}, len(mirrors))
+	for registry, endpoint := range mirrors {
+		registry = strings.ToLower(strings.TrimSpace(registry))
+		if err := validateRegistryName(registry); err != nil {
+			return nil, err
+		}
+		if _, exists := seen[registry]; exists {
+			return nil, fmt.Errorf("containerd Registry mirror %q is configured more than once", registry)
+		}
+		endpoint, err := normalizeRegistryMirrorEndpoint(endpoint)
+		if err != nil {
+			return nil, fmt.Errorf("containerd Registry mirror %q: %w", registry, err)
+		}
+		result = append(result, registryMirror{Registry: registry, Endpoint: endpoint})
+		seen[registry] = struct{}{}
+	}
+	sort.Slice(result, func(left, right int) bool { return result[left].Registry < result[right].Registry })
+	return result, nil
+}
+
+func normalizeRegistryMirrorEndpoint(endpoint string) (string, error) {
 	endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
 	if endpoint == "" {
-		return "", nil
+		return "", fmt.Errorf("endpoint is required")
 	}
 	u, err := url.Parse(endpoint)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return "", fmt.Errorf("containerd Registry mirror must be an HTTP or HTTPS URL with a host")
+		return "", fmt.Errorf("must be an HTTP or HTTPS URL with a host")
 	}
 	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return "", fmt.Errorf("containerd Registry mirror must not contain user information, query, or fragment")
+		return "", fmt.Errorf("must not contain user information, query, or fragment")
 	}
 	return endpoint, nil
 }
 
-func dockerMirrorHostsToml(endpoint string) string {
-	return "server = \"https://registry-1.docker.io\"\n\n[host." + strconv.Quote(endpoint) + "]\n  capabilities = [\"pull\", \"resolve\"]\n"
+var registryHostnamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$`)
+
+func validateRegistryName(registry string) error {
+	if registry == "" || strings.ContainsAny(registry, "/\\ \t\r\n") {
+		return fmt.Errorf("containerd Registry name must be a hostname with an optional port")
+	}
+	parts := strings.Split(registry, ":")
+	if len(parts) > 2 || !registryHostnamePattern.MatchString(parts[0]) {
+		return fmt.Errorf("containerd Registry name must be a hostname with an optional port")
+	}
+	if len(parts) == 2 {
+		port, err := strconv.Atoi(parts[1])
+		if err != nil || port < 1 || port > 65535 {
+			return fmt.Errorf("containerd Registry name contains an invalid port")
+		}
+	}
+	return nil
+}
+
+func registryMirrorHostsToml(registry, endpoint string) string {
+	server := "https://" + registry
+	if registry == "docker.io" {
+		server = "https://registry-1.docker.io"
+	}
+	return "server = " + strconv.Quote(server) + "\n\n[host." + strconv.Quote(endpoint) + "]\n  capabilities = [\"pull\", \"resolve\"]\n"
 }
 
 func remotePayloadPath(remoteRoot, payloadPath string) (string, error) {

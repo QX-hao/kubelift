@@ -120,7 +120,7 @@ func (e AddMasterExecutor) Execute(ctx context.Context, configuration config.Con
 	var preparation install.Report
 	if !state.reached(AddPhasePrepared) {
 		preparation, err = install.PrepareNode(ctx, e.Remote, staged.RemoteRoot, staged.Manifest, install.PrepareOptions{
-			RegistryMirror: configuration.Spec.Registry.MirrorEndpoint(),
+			RegistryMirrors: configuration.Spec.Registry.MirrorEndpoints(),
 		})
 		if err != nil {
 			return AddMasterResult{}, err

@@ -40,6 +40,22 @@ sudo kubelift config init
 
 默认配置路径为 `/etc/kubelift/cluster.yaml`。也可以使用 `-o` 指定其他输出路径；已有文件不会被覆盖。
 
+containerd 镜像代理可以按源仓库分别配置。GitHub Container Registry 使用
+`ghcr.io`，不是 `github.com`：
+
+```yaml
+spec:
+  registry:
+    mirrors:
+      docker.io: https://docker.m.daocloud.io
+      ghcr.io: https://ghcr.example.com
+```
+
+安装准备时，KubeLift 会为每个仓库生成对应的
+`/etc/containerd/certs.d/<registry>/hosts.toml`，并设置 containerd 的
+`registry.config_path`。代理地址必须能从每个节点访问，并且实现对应源仓库的
+OCI pull/resolve 接口。旧版 `registry.mirror` 字段仍兼容，但只用于 Docker Hub。
+
 只校验配置语法和字段值，不检查当前服务器：
 
 ```bash
@@ -233,4 +249,4 @@ go build -ldflags "-X github.com/QX-hao/kubelift/internal/buildinfo.Version=v0.1
 
 ## 开发状态
 
-`config init`、`config validate`、`config kubeadm`、`check`、`check ssh`、`bundle manifest`、`bundle create`、`bundle inspect`、`bundle push`、`bundle prepare`、`bundle import-images`、`create`、`add node`、`add master`、`status` 和 `version` 已可用。`create` 可以完成本地 staging、节点准备、镜像导入、`kubeadm init`、Cilium 安装、API Server/节点/CoreDNS 健康检查以及可选 Registry 缓存启动，并支持基于阶段状态的显式恢复。`add node` 和 `add master` 已分别支持 Worker 与控制平面节点加入。
+`config init`、`config validate`、`config kubeadm`、`check`、`check ssh`、`bundle manifest`、`bundle create`、`bundle inspect`、`bundle push`、`bundle prepare`、`bundle import-images`、`create`、`add node`、`add master`、`status`、`uninstall`（别名 `reset`）和 `version` 已可用。`create` 可以完成本地 staging、节点准备、镜像导入、`kubeadm init`、Cilium 安装、API Server/节点/CoreDNS 健康检查以及可选 Registry 缓存启动，并支持基于阶段状态的显式恢复。`add node` 和 `add master` 已分别支持 Worker 与控制平面节点加入。`uninstall` 需要显式 `--force`，会按 Worker、其他控制平面、当前控制面的顺序清理集群；默认保留配置和离线包。

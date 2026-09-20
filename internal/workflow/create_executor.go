@@ -219,7 +219,7 @@ func (e CreateExecutor) ExecuteCreate(ctx context.Context, configuration config.
 	var preparation install.Report
 	if !state.reached(PhasePrepared) {
 		preparation, err = install.PrepareNode(ctx, e.Runner, staged.RemoteRoot, staged.Manifest, install.PrepareOptions{
-			RegistryMirror: configuration.Spec.Registry.MirrorEndpoint(),
+			RegistryMirrors: configuration.Spec.Registry.MirrorEndpoints(),
 		})
 		if err != nil {
 			return CreateResult{}, err

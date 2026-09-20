@@ -65,9 +65,14 @@ spec:
   registry:
     enabled: true
     port: 5000
+    # 旧版单 Docker Hub 代理写法，仍然兼容。
     mirror:
-      enabled: true
-      endpoint: https://docker.m.daocloud.io
+      enabled: false
+      # endpoint: https://docker.m.daocloud.io
+    # 推荐按镜像仓库分别配置。每个仓库都会生成独立的 hosts.toml。
+    mirrors:
+      docker.io: https://docker.m.daocloud.io
+      ghcr.io: https://ghcr.example.com
 
   ssh:
     user: root
@@ -83,13 +88,15 @@ kubelift config validate
 
 The default path is `/etc/kubelift/cluster.yaml`; use `-f` to select another file.
 
-When `spec.registry.mirror.enabled` is true, KubeLift configures every prepared
-node to use the endpoint as a Docker Hub mirror. It writes the containerd v2
-`registry.config_path` setting and generates
-`/etc/containerd/certs.d/docker.io/hosts.toml`. The endpoint must be reachable
-from every node. This mirror setting is separate from the optional local
-Registry Pod: enabling the local Registry does not make it a pull-through cache
-by itself.
+When `spec.registry.mirrors` contains entries, KubeLift configures every
+prepared node with one containerd hosts file per source registry, for example
+`/etc/containerd/certs.d/docker.io/hosts.toml` and
+`/etc/containerd/certs.d/ghcr.io/hosts.toml`. It writes the containerd v2
+`registry.config_path` setting. The endpoint for every mirror must be reachable
+from every node and must implement the source registry's OCI pull/resolve API.
+The legacy `spec.registry.mirror` field remains supported as a Docker Hub-only
+shortcut. This mirror setting is separate from the optional local Registry Pod:
+enabling the local Registry does not make it a pull-through cache by itself.
 
 Render the Kubernetes v1.28 kubeadm init configuration without changing the
 host:
