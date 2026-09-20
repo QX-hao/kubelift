@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -69,8 +70,22 @@ type OfflineSpec struct {
 }
 
 type RegistrySpec struct {
-	Enabled bool `yaml:"enabled"`
-	Port    int  `yaml:"port"`
+	Enabled bool               `yaml:"enabled"`
+	Port    int                `yaml:"port"`
+	Mirror  RegistryMirrorSpec `yaml:"mirror"`
+}
+
+type RegistryMirrorSpec struct {
+	Enabled  bool   `yaml:"enabled"`
+	Endpoint string `yaml:"endpoint"`
+}
+
+// MirrorEndpoint returns the configured Docker Hub mirror only when it is enabled.
+func (r RegistrySpec) MirrorEndpoint() string {
+	if !r.Mirror.Enabled {
+		return ""
+	}
+	return r.Mirror.Endpoint
 }
 
 type SSHSpec struct {
@@ -130,6 +145,9 @@ func (c Config) Validate() error {
 			return fmt.Errorf("spec.registry.port conflicts with a Kubernetes control-plane port")
 		}
 	}
+	if err := validateRegistryMirror(c.Spec.Registry.Mirror); err != nil {
+		return fmt.Errorf("spec.registry.mirror: %w", err)
+	}
 	if strings.TrimSpace(c.Spec.SSH.User) == "" {
 		return fmt.Errorf("spec.ssh.user is required")
 	}
@@ -143,6 +161,27 @@ func (c Config) Validate() error {
 		return fmt.Errorf("spec.registry.port must not conflict with spec.ssh.port")
 	}
 
+	return nil
+}
+
+func validateRegistryMirror(mirror RegistryMirrorSpec) error {
+	endpoint := strings.TrimSpace(mirror.Endpoint)
+	if mirror.Enabled && endpoint == "" {
+		return fmt.Errorf("endpoint is required when mirror is enabled")
+	}
+	if endpoint == "" {
+		return nil
+	}
+	u, err := url.Parse(endpoint)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("endpoint must be an HTTP or HTTPS URL with a host")
+	}
+	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("endpoint must not contain user information, query, or fragment")
+	}
+	if strings.TrimSpace(u.Host) != u.Host {
+		return fmt.Errorf("endpoint must not contain whitespace")
+	}
 	return nil
 }
 

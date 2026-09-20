@@ -22,7 +22,7 @@ func (r *fakeCommandRunner) Run(_ context.Context, command string) (remote.Comma
 
 func TestPrepareNodeBuildsBinaryRuntimeAndSystemdCommand(t *testing.T) {
 	runner := &fakeCommandRunner{}
-	report, err := PrepareNode(context.Background(), runner, "/var/lib/kubelift/staging/production", preparationManifest())
+	report, err := PrepareNode(context.Background(), runner, "/var/lib/kubelift/staging/production", preparationManifest(), PrepareOptions{})
 	if err != nil {
 		t.Fatalf("PrepareNode() error = %v", err)
 	}
@@ -57,14 +57,36 @@ func TestPrepareNodeBuildsBinaryRuntimeAndSystemdCommand(t *testing.T) {
 	if strings.Contains(runner.command, "dpkg") || strings.Contains(runner.command, "apt") {
 		t.Fatalf("preparation command contains package installation: %s", runner.command)
 	}
+	if strings.Contains(runner.command, "certs.d") {
+		t.Fatalf("disabled Registry mirror changed containerd configuration: %s", runner.command)
+	}
 }
 
 func TestPrepareNodeRequiresCorePayloads(t *testing.T) {
 	manifest := preparationManifest()
 	manifest.Spec.Files = manifest.Spec.Files[1:]
-	_, err := PrepareNode(context.Background(), &fakeCommandRunner{}, "/var/lib/kubelift/staging/production", manifest)
+	_, err := PrepareNode(context.Background(), &fakeCommandRunner{}, "/var/lib/kubelift/staging/production", manifest, PrepareOptions{})
 	if err == nil || !strings.Contains(err.Error(), `"kubeadm" binary`) {
 		t.Fatalf("PrepareNode() error = %v, want missing kubeadm error", err)
+	}
+}
+
+func TestPrepareNodeConfiguresDockerMirror(t *testing.T) {
+	runner := &fakeCommandRunner{}
+	_, err := PrepareNode(context.Background(), runner, "/var/lib/kubelift/staging/production", preparationManifest(), PrepareOptions{
+		RegistryMirror: "https://docker.m.daocloud.io/",
+	})
+	if err != nil {
+		t.Fatalf("PrepareNode() error = %v", err)
+	}
+	for _, expected := range []string{
+		"/etc/containerd/certs.d/docker.io/hosts.toml",
+		"https://docker.m.daocloud.io",
+		"config_path = \"/etc/containerd/certs.d\"",
+	} {
+		if !strings.Contains(runner.command, expected) {
+			t.Errorf("mirror preparation command does not contain %q:\n%s", expected, runner.command)
+		}
 	}
 }
 
@@ -73,7 +95,7 @@ func TestPrepareNodeReportsRemoteFailure(t *testing.T) {
 		result: remote.CommandResult{Stderr: "Unit containerd.service failed"},
 		err:    context.Canceled,
 	}
-	_, err := PrepareNode(context.Background(), runner, "/var/lib/kubelift/staging/production", preparationManifest())
+	_, err := PrepareNode(context.Background(), runner, "/var/lib/kubelift/staging/production", preparationManifest(), PrepareOptions{})
 	if err == nil || !strings.Contains(err.Error(), "Unit containerd.service failed") {
 		t.Fatalf("PrepareNode() error = %v, want remote stderr", err)
 	}
@@ -82,7 +104,7 @@ func TestPrepareNodeReportsRemoteFailure(t *testing.T) {
 func TestPrepareNodeRejectsPackagePayloads(t *testing.T) {
 	manifest := preparationManifest()
 	manifest.Spec.Files[0].Kind = "package"
-	_, err := PrepareNode(context.Background(), &fakeCommandRunner{}, "/var/lib/kubelift/staging/production", manifest)
+	_, err := PrepareNode(context.Background(), &fakeCommandRunner{}, "/var/lib/kubelift/staging/production", manifest, PrepareOptions{})
 	if err == nil || !strings.Contains(err.Error(), `kind "package" is not supported`) {
 		t.Fatalf("PrepareNode() error = %v, want unsupported package kind", err)
 	}

@@ -62,6 +62,13 @@ spec:
   offline:
     bundle: /opt/kubelift/kubernetes-v1.28.15-amd64.tar.zst
 
+  registry:
+    enabled: true
+    port: 5000
+    mirror:
+      enabled: true
+      endpoint: https://docker.m.daocloud.io
+
   ssh:
     user: root
     port: 22
@@ -75,6 +82,14 @@ kubelift config validate
 ```
 
 The default path is `/etc/kubelift/cluster.yaml`; use `-f` to select another file.
+
+When `spec.registry.mirror.enabled` is true, KubeLift configures every prepared
+node to use the endpoint as a Docker Hub mirror. It writes the containerd v2
+`registry.config_path` setting and generates
+`/etc/containerd/certs.d/docker.io/hosts.toml`. The endpoint must be reachable
+from every node. This mirror setting is separate from the optional local
+Registry Pod: enabling the local Registry does not make it a pull-through cache
+by itself.
 
 Render the Kubernetes v1.28 kubeadm init configuration without changing the
 host:
@@ -293,6 +308,24 @@ kubelift status --details -f /etc/kubelift/cluster.yaml
 Detailed status is read-only and reports Nodes, Cilium, CoreDNS, and the
 host-network Registry when it is enabled in the cluster configuration.
 
+Remove a cluster after testing or before reinstalling it:
+
+```bash
+kubelift uninstall --dry-run
+kubelift uninstall --force
+```
+
+`uninstall` (also available as `reset`) must be given `--force` before it can
+change a host. It discovers nodes from the current API server, resets workers
+first, resets secondary control-plane nodes next, and resets the current
+control-plane node last. Each node then loses its Kubernetes, Cilium,
+containerd data, systemd units, KubeLift staging/state, and optional local
+Registry data. The command keeps `/etc/kubelift/cluster.yaml` and the offline
+Bundle by default; add `--purge-config` only when the local configuration
+directory should also be removed. It does not restore swap entries that were
+commented during host preparation, so review `/etc/fstab.kubelift.bak` before
+re-enabling swap for non-Kubernetes workloads.
+
 The v1.28 profile skips kube-proxy and uses Cilium as its full replacement.
 KubeLift still installs the host tools required by kubeadm and does not suppress
 their preflight checks.
@@ -320,6 +353,7 @@ kubelift
 │   ├── kubeadm
 │   └── validate
 ├── create
+├── uninstall (alias: reset)
 ├── status
 └── version
 ```
@@ -332,3 +366,6 @@ server, Cilium, nodes, and CoreDNS. It also starts and verifies the optional
 host-network Registry static Pod cache. The public `create` command is enabled
 with persisted phase state and explicit interrupted-run recovery. Worker and
 additional control-plane joining are enabled through `add node` and `add master`.
+The guarded `uninstall` command removes a discovered cluster and its
+KubeLift-managed runtime state, while preserving the configuration and offline
+Bundle unless explicitly purged.

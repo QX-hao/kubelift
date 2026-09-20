@@ -67,6 +67,22 @@ func CreatePlan(configuration config.Config) Plan {
 	}
 }
 
+// UninstallPlan 描述卸载整个集群的执行顺序，不包含任何节点变更。
+func UninstallPlan(configuration config.Config) Plan {
+	return Plan{
+		Action:            "uninstall cluster",
+		Cluster:           configuration.Metadata.Name,
+		KubernetesVersion: configuration.Spec.Kubernetes.Version,
+		Steps: []Step{
+			{Name: "discover-nodes", Description: "Read all Kubernetes nodes from the current API server"},
+			{Name: "reset-workers", Description: "Reset worker nodes over SSH and remove their Kubernetes node objects"},
+			{Name: "reset-control-planes", Description: "Reset secondary control-plane nodes and remove their Kubernetes node objects"},
+			{Name: "reset-local-control-plane", Description: "Reset the current control plane after remote nodes are gone"},
+			{Name: "remove-managed-state", Description: "Remove Kubernetes, Cilium, containerd, and KubeLift managed runtime state"},
+		},
+	}
+}
+
 func AddPlan(configuration config.Config, role Role, options AddOptions) (Plan, error) {
 	if role != RoleMaster && role != RoleNode {
 		return Plan{}, fmt.Errorf("unsupported node role %q", role)

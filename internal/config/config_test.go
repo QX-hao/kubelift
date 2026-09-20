@@ -76,6 +76,23 @@ func TestLoadPreservesExplicitlyDisabledRegistry(t *testing.T) {
 	}
 }
 
+func TestLoadRegistryMirror(t *testing.T) {
+	path := writeConfig(t, strings.Replace(
+		validYAML,
+		"    port: 5000",
+		"    port: 5000\n    mirror:\n      enabled: true\n      endpoint: https://docker.m.daocloud.io",
+		1,
+	))
+
+	configuration, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !configuration.Spec.Registry.Mirror.Enabled || configuration.Spec.Registry.Mirror.Endpoint != "https://docker.m.daocloud.io" {
+		t.Fatalf("registry mirror = %+v, want enabled DaoCloud endpoint", configuration.Spec.Registry.Mirror)
+	}
+}
+
 func TestLoadRejectsUnknownField(t *testing.T) {
 	path := writeConfig(t, strings.Replace(
 		validYAML,
@@ -167,6 +184,20 @@ func TestValidateRejectsInvalidConfiguration(t *testing.T) {
 				configuration.Spec.Registry.Port = 22
 			},
 			want: "must not conflict",
+		},
+		{
+			name: "enabled registry mirror without endpoint",
+			change: func(configuration *Config) {
+				configuration.Spec.Registry.Mirror.Enabled = true
+			},
+			want: "endpoint is required",
+		},
+		{
+			name: "registry mirror with unsupported scheme",
+			change: func(configuration *Config) {
+				configuration.Spec.Registry.Mirror.Endpoint = "ftp://mirror.example.com"
+			},
+			want: "HTTP or HTTPS",
 		},
 	}
 

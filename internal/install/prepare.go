@@ -19,9 +19,11 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/QX-hao/kubelift/internal/bundle"
@@ -43,9 +45,15 @@ type Report struct {
 	HostLibraryCount int
 }
 
+// PrepareOptions 控制节点准备时的可选 containerd Registry 配置。
+type PrepareOptions struct {
+	// RegistryMirror 是 Docker Hub 的 HTTP(S) 镜像地址。为空时不修改 Registry mirror。
+	RegistryMirror string
+}
+
 // PrepareNode 使用 Sealos 风格的 Bundle 载荷准备一个 Ubuntu 节点。
 // 该步骤只安装运行时和服务文件，不初始化 Kubernetes 集群。
-func PrepareNode(ctx context.Context, runner CommandRunner, remoteRoot string, manifest bundle.Manifest) (Report, error) {
+func PrepareNode(ctx context.Context, runner CommandRunner, remoteRoot string, manifest bundle.Manifest, options PrepareOptions) (Report, error) {
 	if runner == nil {
 		return Report{}, fmt.Errorf("node preparation command runner is required")
 	}
@@ -54,6 +62,10 @@ func PrepareNode(ctx context.Context, runner CommandRunner, remoteRoot string, m
 	}
 	if err := manifest.Validate(); err != nil {
 		return Report{}, fmt.Errorf("validate offline bundle manifest: %w", err)
+	}
+	mirrorEndpoint, err := normalizeRegistryMirror(options.RegistryMirror)
+	if err != nil {
+		return Report{}, err
 	}
 
 	steps := make([]string, 0, len(manifest.Spec.Files)+8)
@@ -175,6 +187,15 @@ func PrepareNode(ctx context.Context, runner CommandRunner, remoteRoot string, m
 	}
 	steps = append(steps, "install -m 0644 -- "+shellQuote(configPath)+" /etc/containerd/config.toml")
 	report.ConfigCount++
+	if mirrorEndpoint != "" {
+		hostsToml := dockerMirrorHostsToml(mirrorEndpoint)
+		registryConfig := "[plugins.\"io.containerd.grpc.v1.cri\".registry]\n  config_path = \"/etc/containerd/certs.d\"\n"
+		steps = append(steps,
+			"install -d -m 0755 -- /etc/containerd/certs.d/docker.io",
+			"printf '%s' "+shellQuote(hostsToml)+" > /etc/containerd/certs.d/docker.io/hosts.toml",
+			"if ! grep -Fq "+shellQuote(`config_path = "/etc/containerd/certs.d"`)+" /etc/containerd/config.toml; then printf '%s' "+shellQuote(registryConfig)+" >> /etc/containerd/config.toml; fi",
+		)
+	}
 
 	unitFiles := append([]bundle.File(nil), manifest.FilesForRole("systemd-unit")...)
 	sort.Slice(unitFiles, func(left, right int) bool { return unitFiles[left].Path < unitFiles[right].Path })
@@ -216,6 +237,25 @@ func PrepareNode(ctx context.Context, runner CommandRunner, remoteRoot string, m
 		return Report{}, fmt.Errorf("prepare remote node: %w", err)
 	}
 	return report, nil
+}
+
+func normalizeRegistryMirror(endpoint string) (string, error) {
+	endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
+	if endpoint == "" {
+		return "", nil
+	}
+	u, err := url.Parse(endpoint)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return "", fmt.Errorf("containerd Registry mirror must be an HTTP or HTTPS URL with a host")
+	}
+	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return "", fmt.Errorf("containerd Registry mirror must not contain user information, query, or fragment")
+	}
+	return endpoint, nil
+}
+
+func dockerMirrorHostsToml(endpoint string) string {
+	return "server = \"https://registry-1.docker.io\"\n\n[host." + strconv.Quote(endpoint) + "]\n  capabilities = [\"pull\", \"resolve\"]\n"
 }
 
 func remotePayloadPath(remoteRoot, payloadPath string) (string, error) {

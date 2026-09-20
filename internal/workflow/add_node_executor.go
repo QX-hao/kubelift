@@ -126,7 +126,9 @@ func (e AddNodeExecutor) Execute(ctx context.Context, configuration config.Confi
 	}
 	var preparation install.Report
 	if !state.reached(AddPhasePrepared) {
-		preparation, err = install.PrepareNode(ctx, e.Remote, staged.RemoteRoot, staged.Manifest)
+		preparation, err = install.PrepareNode(ctx, e.Remote, staged.RemoteRoot, staged.Manifest, install.PrepareOptions{
+			RegistryMirror: configuration.Spec.Registry.MirrorEndpoint(),
+		})
 		if err != nil {
 			return AddNodeResult{}, err
 		}

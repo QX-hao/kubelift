@@ -41,10 +41,29 @@ func TestRootHelpExposesSupportedCommands(t *testing.T) {
 	if err != nil {
 		t.Fatalf("kubelift --help error = %v\n%s", err, output)
 	}
-	for _, command := range []string{"add", "bundle", "check", "config", "create", "status", "version"} {
+	for _, command := range []string{"add", "bundle", "check", "config", "create", "status", "uninstall", "version"} {
 		if !strings.Contains(output, command) {
 			t.Errorf("root help does not contain %q:\n%s", command, output)
 		}
+	}
+}
+
+func TestUninstallRequiresForceAndSupportsDryRun(t *testing.T) {
+	path := writeCLIConfiguration(t, true)
+	output, err := runCLI(t, "uninstall", "-f", path)
+	if err == nil || !strings.Contains(output, "destructive") {
+		t.Fatalf("uninstall without --force error = %v, output = %q", err, output)
+	}
+	output, err = runCLI(t, "uninstall", "-f", path, "--dry-run")
+	if err != nil {
+		t.Fatalf("uninstall --dry-run error = %v\n%s", err, output)
+	}
+	if !strings.Contains(output, "Dry-run plan: uninstall cluster") || !strings.Contains(output, "reset-local-control-plane") {
+		t.Fatalf("uninstall --dry-run output = %q", output)
+	}
+	output, err = runCLI(t, "reset", "-f", path, "--dry-run")
+	if err != nil || !strings.Contains(output, "Dry-run plan: uninstall cluster") {
+		t.Fatalf("reset alias output = %v, %q", err, output)
 	}
 }
 
