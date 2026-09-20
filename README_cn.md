@@ -1,6 +1,6 @@
 # KubeLift
 
-[English](README.md) | 中文
+[中文文档](README_cn.md) | [English文档](README.md)
 
 KubeLift 是一个运行在首个控制平面节点上的 Kubernetes 集群部署 CLI。它通过 SSH 管理其他 Ubuntu 节点，使用 containerd、kubeadm 和 Cilium，并以离线安装作为首个实现目标。
 

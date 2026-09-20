@@ -1,6 +1,6 @@
 # KubeLift
 
-[中文文档](README_cn.md) | English
+[中文文档](README_cn.md) | [English文档](README.md)
 
 KubeLift is a Go-based CLI for bootstrapping Kubernetes clusters on existing Ubuntu servers. It is designed to run on the first control-plane node, use SSH to manage additional nodes, install from an offline bundle, use containerd as the container runtime, and install Cilium as the CNI.
 
