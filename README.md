@@ -1,5 +1,7 @@
 # KubeLift
 
+[中文文档](README_cn.md) | English
+
 KubeLift is a Go-based CLI for bootstrapping Kubernetes clusters on existing Ubuntu servers. It is designed to run on the first control-plane node, use SSH to manage additional nodes, install from an offline bundle, use containerd as the container runtime, and install Cilium as the CNI.
 
 The project now implements offline Master0 creation, worker and control-plane joins, Cilium installation, optional Registry startup, resumable phase state, and post-installation status checks. Real-host integration testing is still required before production use.
@@ -15,6 +17,78 @@ k8s1 (Master0)
 ```
 
 The remote nodes do not need KubeLift installed. The current implementation expects root SSH access using a private key. Password authentication is not supported.
+
+## Quick Start
+
+The shortest supported workflow for a three-node test cluster is:
+
+```text
+k8s1  192.168.121.151  first control-plane node (Master0)
+k8s2  192.168.121.152  additional control-plane node
+k8s3  192.168.121.153  worker node
+```
+
+Run the following commands on `k8s1` as `root`:
+
+1. Copy the Linux `kubelift` binary and the matching offline Bundle to `k8s1`.
+2. Create and edit `/etc/kubelift/cluster.yaml`:
+
+   ```bash
+   kubelift config init
+   editor /etc/kubelift/cluster.yaml
+   ```
+
+   Set the Kubernetes version, Master0 address, absolute Bundle path, SSH
+   private-key path, and a stable `controlPlane.endpoint` before creating more
+   than one control-plane node.
+3. Verify SSH host keys before the first connection. The default known-hosts
+   file is next to the configured private key:
+
+   ```bash
+   ssh-keyscan -H 192.168.121.152 192.168.121.153 \
+     >> /root/.ssh/known_hosts
+   ```
+
+   Review the host fingerprints through a trusted channel before accepting
+   them. KubeLift rejects unknown or changed host keys.
+4. Preview and create the first control-plane node:
+
+   ```bash
+   kubelift create --dry-run
+   kubelift create
+   ```
+
+5. Add the remaining nodes. These commands perform remote preparation,
+   component installation, offline image import, `kubeadm join`, and readiness
+   checks internally:
+
+   ```bash
+   kubelift add master 192.168.121.152
+   kubelift add node 192.168.121.153
+   ```
+
+6. Verify the result:
+
+   ```bash
+   kubelift status --details
+   ```
+
+`config validate`, `check`, and `check ssh` are optional diagnostic commands;
+the create and add workflows run the required preflight checks themselves. If
+an operation is interrupted, inspect the error and rerun the same command with
+`--resume` when KubeLift requests it. Do not rerun an ambiguous `kubeadm init`
+or `kubeadm join` manually without checking the persisted state first.
+
+To remove the test cluster before reinstalling it:
+
+```bash
+kubelift uninstall --dry-run
+kubelift uninstall --force
+```
+
+The default uninstall keeps `/etc/kubelift/cluster.yaml` and the offline
+Bundle. Add `--purge-config` only when the local KubeLift configuration and
+state should also be removed.
 
 ## Requirements
 

@@ -1,8 +1,78 @@
 # KubeLift
 
+[English](README.md) | 中文
+
 KubeLift 是一个运行在首个控制平面节点上的 Kubernetes 集群部署 CLI。它通过 SSH 管理其他 Ubuntu 节点，使用 containerd、kubeadm 和 Cilium，并以离线安装作为首个实现目标。
 
 当前每个节点至少需要 2 个逻辑 CPU、约 1.8 GiB 内存、`/var/lib` 下 10 GiB 可用空间，并且必须由 systemd 管理系统服务。你准备的 4C4G、2C2G、2C2G 和每台 50G 磁盘满足这组预检阈值。
+
+## 快速开始
+
+下面是三台 Ubuntu 虚拟机的完整测试流程：
+
+```text
+k8s1  192.168.121.151  首个控制平面节点（Master0）
+k8s2  192.168.121.152  其他控制平面节点
+k8s3  192.168.121.153  Worker 节点
+```
+
+先把 Linux 版 `kubelift` 和匹配的离线 Bundle 上传到 `k8s1`，然后在
+`k8s1` 上以 `root` 用户执行以下操作：
+
+1. 生成并编辑配置：
+
+   ```bash
+   kubelift config init
+   editor /etc/kubelift/cluster.yaml
+   ```
+
+   设置 Kubernetes 完整版本、Master0 地址、离线 Bundle 绝对路径和 SSH
+   私钥路径。准备两个控制平面节点时，必须在首次创建前填写稳定的
+   `controlPlane.endpoint`。
+2. 首次连接前确认远程主机指纹，再写入与私钥同目录的 `known_hosts`：
+
+   ```bash
+   ssh-keyscan -H 192.168.121.152 192.168.121.153 \
+     >> /root/.ssh/known_hosts
+   ```
+
+   `ssh-keyscan` 只负责读取远程 SSH 服务公开的主机公钥，不负责登录认证。
+   写入前应通过可信渠道核对指纹；KubeLift 不接受未知或发生变化的主机公钥。
+3. 预览并创建首个控制平面节点：
+
+   ```bash
+   kubelift create --dry-run
+   kubelift create
+   ```
+
+4. 加入其余节点。下面两个命令会自动完成远程预检、系统准备、组件安装、
+   离线镜像导入、`kubeadm join` 和节点就绪检查：
+
+   ```bash
+   kubelift add master 192.168.121.152
+   kubelift add node 192.168.121.153
+   ```
+
+5. 查看集群状态：
+
+   ```bash
+   kubelift status --details
+   ```
+
+`config validate`、`check` 和 `check ssh` 是可选的诊断命令；`create` 和
+`add` 流程会自动执行必要的预检。命令中断后，先阅读错误信息和状态文件，
+只有 KubeLift 要求时才使用相同命令加 `--resume` 继续。不要在无法确认
+`kubeadm init` 或 `kubeadm join` 状态时直接重复执行。
+
+测试完成后，可以按下面的顺序清理集群：
+
+```bash
+kubelift uninstall --dry-run
+kubelift uninstall --force
+```
+
+默认会保留 `/etc/kubelift/cluster.yaml` 和离线 Bundle。只有需要删除本机
+KubeLift 配置和状态时，才额外使用 `--purge-config`。
 
 ## 命令树
 
