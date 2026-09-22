@@ -34,3 +34,6 @@ go.work.sum
 # cli
 data/
 kubelift
+
+# Local Codex project skill
+.codex/
